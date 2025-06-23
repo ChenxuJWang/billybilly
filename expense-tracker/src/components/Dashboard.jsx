@@ -22,6 +22,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
 import { useTransactionUpdates } from '../hooks/useTransactionUpdates';
+import InvitationManager from './InvitationManager';
 
 export default function Dashboard() {
   const { currentUser } = useAuth();
@@ -157,6 +158,9 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Pending Invitations */}
+      <InvitationManager />
+      
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
         <Badge variant="secondary" className="text-sm">

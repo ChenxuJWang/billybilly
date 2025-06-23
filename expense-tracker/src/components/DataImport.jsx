@@ -154,11 +154,15 @@ export default function DataImport() {
         category.toLowerCase().includes(cat.name.toLowerCase())
       );
       
+      // Create notes with counterparty information for Alipay
+      const notes = counterparty ? `Counterparty: ${counterparty}` : '';
+      
       transactions.push({
         date: new Date(dateTime),
         type: type === "支出" ? "expense" : "income",
         amount: Math.abs(parsedAmount),
-        description: description || counterparty || "Unknown Transaction",
+        description: description || "Unknown Transaction",
+        notes: notes,
         categoryId: mappedCategory ? mappedCategory.id : null,
         categoryName: mappedCategory ? mappedCategory.name : category,
         paymentMethod: paymentMethod || "Unknown",
@@ -240,11 +244,15 @@ export default function DataImport() {
         transactionType.toLowerCase().includes(cat.name.toLowerCase())
       );
       
+      // Create notes with counterparty information for WeChat Pay
+      const notes = counterparty ? `Counterparty: ${counterparty}` : '';
+      
       transactions.push({
         date: new Date(dateTime),
         type: type === "支出" ? "expense" : "income",
         amount: Math.abs(parsedAmount),
-        description: product || counterparty || "Unknown Transaction",
+        description: product || "Unknown Transaction",
+        notes: notes,
         categoryId: mappedCategory ? mappedCategory.id : null,
         categoryName: mappedCategory ? mappedCategory.name : transactionType,
         paymentMethod: paymentMethod || "Unknown",
@@ -293,6 +301,7 @@ export default function DataImport() {
           type: transaction.type,
           amount: transaction.amount,
           description: transaction.description,
+          notes: transaction.notes || '',
           categoryId: transaction.categoryId,
           categoryName: transaction.categoryName,
           paymentMethod: transaction.paymentMethod,

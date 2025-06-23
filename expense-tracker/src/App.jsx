@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
@@ -16,7 +16,8 @@ import {
   TrendingUp,
   Calendar,
   LogOut,
-  Tag
+  Tag,
+  BookOpen
 } from 'lucide-react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { LedgerProvider } from './contexts/LedgerContext'
@@ -27,6 +28,7 @@ import Dashboard from './components/Dashboard'
 import TransactionManagement from './components/TransactionManagement'
 import BudgetManagement from './components/BudgetManagement'
 import CategoryManagement from './components/CategoryManagement'
+import LedgerManagement from './components/LedgerManagement'
 import DataImport from './components/DataImport'
 import './App.css'
 
@@ -40,6 +42,7 @@ function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }) {
     { path: '/transactions', label: 'Transactions', icon: CreditCard },
     { path: '/budgets', label: 'Budgets', icon: PieChart },
     { path: '/categories', label: 'Categories', icon: Tag },
+    { path: '/ledgers', label: 'Ledgers', icon: BookOpen },
     { path: '/splits', label: 'Expense Splits', icon: Users },
     { path: '/import', label: 'Import', icon: Upload },
     { path: '/settings', label: 'Settings', icon: Cog },
@@ -247,6 +250,11 @@ function AppContent() {
           <Route path="/categories" element={
             <ProtectedRoute>
               <Categories />
+            </ProtectedRoute>
+          } />
+          <Route path="/ledgers" element={
+            <ProtectedRoute>
+              <LedgerManagement />
             </ProtectedRoute>
           } />
           <Route path="/splits" element={
