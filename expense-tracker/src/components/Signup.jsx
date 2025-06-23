@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label.jsx';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { DollarSign, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useLedger } from '../contexts/LedgerContext';
 
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -18,6 +19,7 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
+  const { refreshLedgers } = useLedger();
   const navigate = useNavigate();
 
   async function handleSubmit(e) {
@@ -35,12 +37,16 @@ export default function Signup() {
       setError('');
       setLoading(true);
       await signup(email, password, displayName);
-      navigate('/');
+      
+      // Refresh ledgers after successful signup to ensure the new user's ledger is loaded
+      setTimeout(async () => {
+        await refreshLedgers();
+        navigate('/');
+      }, 500);
     } catch (error) {
       setError('Failed to create an account: ' + error.message);
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   return (

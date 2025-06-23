@@ -18,7 +18,6 @@ export function useAuth() {
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [currentLedger, setCurrentLedger] = useState(null);
 
   function signup(email, password, displayName) {
     return createUserWithEmailAndPassword(auth, email, password)
@@ -48,9 +47,6 @@ export function AuthProvider({ children }) {
           currency: 'CNY'
         });
 
-        // Set the default ledger as current
-        setCurrentLedger(defaultLedger.id);
-
         return result;
       });
   }
@@ -60,41 +56,27 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
-    setCurrentLedger(null);
     return signOut(auth);
-  }
-
-  function switchLedger(ledgerId) {
-    setCurrentLedger(ledgerId);
   }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setCurrentUser(user);
-        
-        // If no current ledger is set, try to find the user's first ledger
-        if (!currentLedger) {
-          // This would typically involve querying the ledgers collection
-          // For now, we'll leave it null and handle it in the UI
-        }
       } else {
         setCurrentUser(null);
-        setCurrentLedger(null);
       }
       setLoading(false);
     });
 
     return unsubscribe;
-  }, [currentLedger]);
+  }, []);
 
   const value = {
     currentUser,
-    currentLedger,
     signup,
     login,
-    logout,
-    switchLedger
+    logout
   };
 
   return (

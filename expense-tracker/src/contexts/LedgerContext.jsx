@@ -43,15 +43,23 @@ export function LedgerProvider({ children }) {
 
       setLedgers(userLedgers);
       
-      // Set the first ledger as current if none is selected
-      if (userLedgers.length > 0 && !currentLedger) {
+      // Always set the first ledger as current for new users or if no current ledger
+      if (userLedgers.length > 0) {
         setCurrentLedger(userLedgers[0]);
+      } else {
+        setCurrentLedger(null);
       }
     } catch (error) {
       console.error('Error fetching ledgers:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Refresh ledgers (useful after signup)
+  const refreshLedgers = async () => {
+    setLoading(true);
+    await fetchLedgers();
   };
 
   // Switch to a different ledger
@@ -88,12 +96,24 @@ export function LedgerProvider({ children }) {
     fetchLedgers();
   }, [currentUser]);
 
+  // Add a second useEffect to handle potential delays in ledger creation
+  useEffect(() => {
+    if (currentUser && ledgers.length === 0 && !loading) {
+      // If user is logged in but no ledgers found, retry after a short delay
+      const timer = setTimeout(() => {
+        refreshLedgers();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [currentUser, ledgers.length, loading]);
+
   const value = {
     ledgers,
     currentLedger,
     loading,
     switchLedger,
     fetchLedgers,
+    refreshLedgers,
     getUserRole,
     isOwner,
     canEdit
