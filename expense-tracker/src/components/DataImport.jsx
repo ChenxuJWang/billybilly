@@ -4,89 +4,55 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input.jsx';
 import { Label } from '@/components/ui/label.jsx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
-import { Textarea } from '@/components/ui/textarea.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { Progress } from '@/components/ui/progress.jsx';
-import { 
-  Upload, 
-  FileText, 
-  CheckCircle, 
+import {
+  Upload,
+  CheckCircle,
   AlertCircle,
-  Download,
   Smartphone,
   CreditCard,
   Bot
 } from 'lucide-react';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  query, 
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
   where,
-  Timestamp 
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
 
-// Import platform configurations
 const IMPORT_PLATFORMS = [
   {
     id: 'alipay',
-    name: 'Alipay (支付宝)',
+    name: 'Alipay',
     icon: CreditCard,
-    description: 'Import transactions from Alipay CSV export',
-    fileFormat: 'CSV',
+    sampleFields: ['交易时间', '交易分类', '交易对方', '商品说明', '收/支', '金额', '支付方式', '当前状态'],
     encoding: 'GB2312',
-    currency: 'CNY',
-    sampleFields: ['交易时间', '交易分类', '交易对方', '商品说明', '收/支', '金额', '收/付款方式', '交易状态']
+    currency: 'CNY'
   },
   {
     id: 'wechat',
-    name: 'WeChat Pay (微信支付)',
+    name: 'WeChat Pay',
     icon: Smartphone,
-    description: 'Import transactions from WeChat Pay CSV export',
-    fileFormat: 'CSV',
+    sampleFields: ['交易时间', '交易类型', '交易对方', '商品', '收/支', '金额(元)', '支付方式', '当前状态'],
     encoding: 'UTF-8',
-    currency: 'CNY',
-    sampleFields: ['交易时间', '交易类型', '交易对方', '商品', '收/支', '金额(元)', '支付方式', '当前状态']
+    currency: 'CNY'
   },
   {
-    id: 'generic',
-    name: 'Generic LLM Parser',
+    id: 'llm',
+    name: 'Generic (AI Powered)',
     icon: Bot,
-    description: 'AI-powered parser for any transaction format',
-    fileFormat: 'CSV, TXT, PDF',
+    sampleFields: ['Any CSV, TXT, or PDF file'],
     encoding: 'Auto-detect',
-    currency: 'Auto-detect',
-    sampleFields: ['AI will automatically detect and map fields']
+    currency: 'Auto-detect'
   }
 ];
-
-// Category mapping for automatic categorization
-const CATEGORY_MAPPING = {
-  alipay: {
-    '日用百货': 'Shopping',
-    '交通出行': 'Transportation',
-    '文化休闲': 'Entertainment',
-    '充值缴费': 'Bills & Utilities',
-    '餐饮美食': 'Food & Dining',
-    '医疗健康': 'Healthcare',
-    '教育培训': 'Education',
-    '旅游度假': 'Travel',
-    '运动健身': 'Fitness',
-    '美容美发': 'Personal Care'
-  },
-  wechat: {
-    '商户消费': 'Shopping',
-    '转账': 'Transfer',
-    '红包': 'Gift',
-    '充值': 'Bills & Utilities',
-    '提现': 'Transfer',
-    '理财': 'Investment'
-  }
-};
 
 export default function DataImport() {
   const { currentUser } = useAuth();
@@ -124,19 +90,31 @@ export default function DataImport() {
 
   // Parse Alipay CSV
   const parseAlipayCSV = (csvText) => {
-    const lines = csvText.split('\n');
+    const lines = csvText.split("\n");
     let dataStartIndex = -1;
     
-    // Find the header line
+    // Find the header line - be more flexible with header detection
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('交易时间,交易分类')) {
+      const line = lines[i].trim();
+      if (line.includes("交易时间") && (line.includes("交易分类") || line.includes("收/支"))) {
         dataStartIndex = i + 1;
         break;
       }
     }
     
     if (dataStartIndex === -1) {
-      throw new Error('Invalid Alipay CSV format: Header not found');
+      // Try alternative approach - look for lines with transaction data pattern
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/)) {
+          dataStartIndex = i;
+          break;
+        }
+      }
+    }
+    
+    if (dataStartIndex === -1) {
+      throw new Error("Invalid Alipay CSV format: No transaction data found. Please ensure the file contains transaction records.");
     }
 
     const transactions = [];
@@ -144,22 +122,47 @@ export default function DataImport() {
       const line = lines[i].trim();
       if (!line) continue;
       
-      const fields = line.split(',');
-      if (fields.length < 8) continue;
+      // More robust CSV parsing - handle quoted fields
+      const fields = line.split(",").map(field => field.replace(/^"|"$/g, "").trim());
+      if (fields.length < 6) continue;
 
-      const [dateTime, category, counterparty, account, description, type, amount, paymentMethod, status] = fields;
+      // Handle different CSV formats
+      let dateTime, category, counterparty, account, description, type, amount, paymentMethod, status;
+      
+      if (fields.length >= 12) {
+        // Standard Alipay format
+        [dateTime, category, counterparty, account, description, type, amount, paymentMethod, status] = fields;
+      } else if (fields.length >= 8) {
+        // Simplified format
+        [dateTime, category, counterparty, description, type, amount, paymentMethod, status] = fields;
+        account = "";
+      } else {
+        continue; // Skip invalid lines
+      }
       
       // Skip non-transaction records
-      if (type !== '支出' && type !== '收入') continue;
+      if (!type || (type !== "支出" && type !== "收入")) continue;
+      
+      // Parse amount - handle different formats
+      const amountStr = amount.toString().replace(/[^\d.-]/g, "");
+      const parsedAmount = parseFloat(amountStr);
+      if (isNaN(parsedAmount)) continue;
+
+      // Map to existing categories or use original category name
+      const mappedCategory = categories.find(cat => 
+        cat.name.toLowerCase().includes(category.toLowerCase()) ||
+        category.toLowerCase().includes(cat.name.toLowerCase())
+      );
       
       transactions.push({
         date: new Date(dateTime),
-        type: type === '支出' ? 'expense' : 'income',
-        amount: Math.abs(parseFloat(amount)),
-        description: description || counterparty,
-        category: CATEGORY_MAPPING.alipay[category] || 'Other',
-        paymentMethod: paymentMethod,
-        platform: 'alipay',
+        type: type === "支出" ? "expense" : "income",
+        amount: Math.abs(parsedAmount),
+        description: description || counterparty || "Unknown Transaction",
+        categoryId: mappedCategory ? mappedCategory.id : null,
+        categoryName: mappedCategory ? mappedCategory.name : category,
+        paymentMethod: paymentMethod || "Unknown",
+        platform: "alipay",
         originalData: {
           category,
           counterparty,
@@ -174,45 +177,78 @@ export default function DataImport() {
 
   // Parse WeChat Pay CSV
   const parseWeChatCSV = (csvText) => {
-    const lines = csvText.split('\n');
+    const lines = csvText.split("\n");
     let dataStartIndex = -1;
-    
-    // Find the header line
+
+    // Find the header line - be more flexible with header detection
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('交易时间,交易类型')) {
+      const line = lines[i].trim();
+      if (line.includes("交易时间") && (line.includes("交易类型") || line.includes("收/支"))) {
         dataStartIndex = i + 1;
         break;
       }
     }
-    
+
     if (dataStartIndex === -1) {
-      throw new Error('Invalid WeChat Pay CSV format: Header not found');
+      // Try alternative approach - look for lines with transaction data pattern
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/)) {
+          dataStartIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (dataStartIndex === -1) {
+      throw new Error("Invalid WeChat Pay CSV format: No transaction data found. Please ensure the file contains transaction records.");
     }
 
     const transactions = [];
     for (let i = dataStartIndex; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
-      
-      const fields = line.split(',');
-      if (fields.length < 8) continue;
 
-      const [dateTime, transactionType, counterparty, product, type, amountStr, paymentMethod, status] = fields;
+      // More robust CSV parsing - handle quoted fields
+      const fields = line.split(",").map(field => field.replace(/^"|"$/g, "").trim());
+      if (fields.length < 6) continue;
+
+      // Handle different CSV formats
+      let dateTime, transactionType, counterparty, product, type, amountStr, paymentMethod, status;
+      
+      if (fields.length >= 11) {
+        // Standard WeChat Pay format
+        [dateTime, transactionType, counterparty, product, type, amountStr, paymentMethod, status] = fields;
+      } else if (fields.length >= 8) {
+        // Simplified format
+        [dateTime, transactionType, counterparty, product, type, amountStr, paymentMethod, status] = fields;
+      } else {
+        continue; // Skip invalid lines
+      }
       
       // Skip non-transaction records
-      if (type !== '支出' && type !== '收入') continue;
+      if (!type || (type !== "支出" && type !== "收入")) continue;
       
-      // Parse amount (remove ¥ symbol)
-      const amount = Math.abs(parseFloat(amountStr.replace('¥', '')));
+      // Parse amount - handle different formats (remove ¥ symbol and other characters)
+      const cleanAmountStr = amountStr.toString().replace(/[¥￥,\s]/g, "").replace(/[^\d.-]/g, "");
+      const parsedAmount = parseFloat(cleanAmountStr);
+      if (isNaN(parsedAmount)) continue;
+      
+      // Map to existing categories or use original category name
+      const mappedCategory = categories.find(cat => 
+        cat.name.toLowerCase().includes(transactionType.toLowerCase()) ||
+        transactionType.toLowerCase().includes(cat.name.toLowerCase())
+      );
       
       transactions.push({
         date: new Date(dateTime),
-        type: type === '支出' ? 'expense' : 'income',
-        amount,
-        description: product || counterparty,
-        category: CATEGORY_MAPPING.wechat[transactionType] || 'Other',
-        paymentMethod: paymentMethod,
-        platform: 'wechat',
+        type: type === "支出" ? "expense" : "income",
+        amount: Math.abs(parsedAmount),
+        description: product || counterparty || "Unknown Transaction",
+        categoryId: mappedCategory ? mappedCategory.id : null,
+        categoryName: mappedCategory ? mappedCategory.name : transactionType,
+        paymentMethod: paymentMethod || "Unknown",
+        platform: "wechat",
         originalData: {
           transactionType,
           counterparty,
@@ -224,17 +260,9 @@ export default function DataImport() {
     return transactions;
   };
 
-  // Map category name to category ID
-  const mapCategoryToId = (categoryName) => {
-    const category = categories.find(cat => 
-      cat.name.toLowerCase() === categoryName.toLowerCase()
-    );
-    return category ? category.id : null;
-  };
-
   // Import transactions to Firestore
   const importTransactions = async (transactions) => {
-    if (!currentLedger || !canEdit) return;
+    if (!currentLedger || !canEdit()) return;
 
     const transactionsRef = collection(db, 'ledgers', currentLedger.id, 'transactions');
     let imported = 0;
@@ -259,16 +287,14 @@ export default function DataImport() {
           continue;
         }
 
-        // Map category
-        const categoryId = mapCategoryToId(transaction.category);
-        
         // Add transaction
         await addDoc(transactionsRef, {
           date: Timestamp.fromDate(transaction.date),
           type: transaction.type,
           amount: transaction.amount,
           description: transaction.description,
-          categoryId: categoryId,
+          categoryId: transaction.categoryId,
+          categoryName: transaction.categoryName,
           paymentMethod: transaction.paymentMethod,
           includeInBudget: true,
           platform: transaction.platform,
@@ -285,88 +311,50 @@ export default function DataImport() {
       }
     }
 
-    return { imported, skipped, total: transactions.length };
+    setImportResults({ imported, skipped });
   };
 
-  // Handle file upload and import
-  const handleImport = async () => {
-    if (!file || !selectedPlatform || !canEdit) return;
+  // Handle file upload
+  const handleFileUpload = async (event) => {
+    const uploadedFile = event.target.files[0];
+    if (!uploadedFile) return;
 
+    setFile(uploadedFile);
     setImporting(true);
     setImportProgress(0);
-    setError('');
-    setSuccess('');
+    setImportResults(null);
+    setError("");
+    setSuccess("");
 
     try {
-      const fileText = await file.text();
-      let transactions = [];
-
-      // Parse based on platform
-      if (selectedPlatform === 'alipay') {
-        // Convert from GB2312 to UTF-8 if needed
-        transactions = parseAlipayCSV(fileText);
-      } else if (selectedPlatform === 'wechat') {
-        transactions = parseWeChatCSV(fileText);
-      } else if (selectedPlatform === 'generic') {
-        // TODO: Implement LLM-powered parsing
-        throw new Error('Generic LLM parser not yet implemented');
-      }
-
-      if (transactions.length === 0) {
-        throw new Error('No valid transactions found in the file');
-      }
-
-      // Import transactions
-      const results = await importTransactions(transactions);
-      setImportResults(results);
+      let parsedTransactions = [];
       
-      if (results.imported > 0) {
-        setSuccess(`Successfully imported ${results.imported} transactions. ${results.skipped} duplicates were skipped.`);
-      } else {
-        setError('No new transactions were imported. All transactions may be duplicates.');
+      if (selectedPlatform === "alipay") {
+        // Alipay CSVs are often GB2312 encoded
+        const arrayBuffer = await uploadedFile.arrayBuffer();
+        const decoder = new TextDecoder("gb2312");
+        const decodedText = decoder.decode(arrayBuffer);
+        parsedTransactions = parseAlipayCSV(decodedText);
+      } else if (selectedPlatform === "wechat") {
+        const text = await uploadedFile.text();
+        parsedTransactions = parseWeChatCSV(text);
+      } else if (selectedPlatform === "llm") {
+        // Placeholder for LLM parsing
+        throw new Error("LLM parsing not yet implemented.");
       }
 
-    } catch (error) {
-      console.error('Import error:', error);
-      setError(error.message || 'Failed to import transactions');
+      if (parsedTransactions.length === 0) {
+        throw new Error("No valid transactions found in the file.");
+      }
+
+      await importTransactions(parsedTransactions);
+      setSuccess(`Successfully imported ${importResults?.imported || 0} transactions!`);
+    } catch (err) {
+      console.error("Import error:", err);
+      setError(`Import error: ${err.message}`);
     } finally {
       setImporting(false);
-      setImportProgress(0);
     }
-  };
-
-  // Handle file selection
-  const handleFileSelect = (event) => {
-    const selectedFile = event.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setImportResults(null);
-      setError('');
-      setSuccess('');
-    }
-  };
-
-  // Download sample template
-  const downloadSampleTemplate = (platform) => {
-    let sampleContent = '';
-    let filename = '';
-
-    if (platform === 'alipay') {
-      sampleContent = `交易时间,交易分类,交易对方,对方账号,商品说明,收/支,金额,收/付款方式,交易状态,交易订单号,商家订单号,备注
-2025-06-22 00:08:11,日用百货,商家名称,152******49,商品描述,支出,380.00,工商银行储蓄卡(6164),交易成功,订单号,商家订单号,`;
-      filename = 'alipay_sample.csv';
-    } else if (platform === 'wechat') {
-      sampleContent = `交易时间,交易类型,交易对方,商品,收/支,金额(元),支付方式,当前状态,交易单号,商户单号,备注
-2025-06-22 17:34:44,转账,朋友姓名,转账备注:微信转账,收入,¥380.00,/,已存入零钱,交易单号,/,/
-2025-06-20 20:32:31,商户消费,美团,先骑后付,支出,¥1.50,零钱,支付成功,交易单号,商户单号,/`;
-      filename = 'wechat_sample.csv';
-    }
-
-    const blob = new Blob([sampleContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    link.click();
   };
 
   useEffect(() => {
@@ -374,39 +362,53 @@ export default function DataImport() {
   }, [currentLedger]);
 
   useEffect(() => {
-    // Clear messages after 5 seconds
     if (success || error) {
       const timer = setTimeout(() => {
         setSuccess('');
         setError('');
-      }, 5000);
+      }, 3000);
       return () => clearTimeout(timer);
     }
   }, [success, error]);
 
-  if (!canEdit) {
+  if (!currentLedger) {
     return (
-      <div className="p-6">
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
+      <div className="p-6 text-center text-gray-500">
+        Please select a ledger to manage categories.
+      </div>
+    );
+  }
+
+  if (importing) {
+    return (
+      <div className="p-6 space-y-4">
+        <h1 className="text-3xl font-bold text-gray-900">Importing Transactions...</h1>
+        <Progress value={importProgress} className="w-full" />
+        <p className="text-center text-gray-600">{importProgress}% Complete</p>
+      </div>
+    );
+  }
+
+  if (importResults) {
+    return (
+      <div className="p-6 space-y-4">
+        <h1 className="text-3xl font-bold text-gray-900">Import Complete!</h1>
+        <Alert variant="default">
+          <CheckCircle className="h-4 w-4" />
           <AlertDescription>
-            You don't have permission to import data to this ledger.
+            Successfully imported {importResults.imported} transactions.
+            {importResults.skipped > 0 && ` ${importResults.skipped} transactions skipped (duplicates or errors).`}
           </AlertDescription>
         </Alert>
+        <Button onClick={() => setImportResults(null)}>Import More</Button>
       </div>
     );
   }
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Import Transactions</h1>
-        <Badge variant="secondary" className="text-sm">
-          Current Ledger: {currentLedger?.name}
-        </Badge>
-      </div>
+      <h1 className="text-3xl font-bold text-gray-900">Import Transactions</h1>
 
-      {/* Messages */}
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -421,175 +423,64 @@ export default function DataImport() {
         </Alert>
       )}
 
-      {/* Platform Selection */}
       <Card>
         <CardHeader>
           <CardTitle>Select Import Platform</CardTitle>
-          <CardDescription>
-            Choose the platform you want to import transactions from
-          </CardDescription>
+          <CardDescription>Choose the platform you want to import transactions from.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {IMPORT_PLATFORMS.map((platform) => {
-              const IconComponent = platform.icon;
-              return (
-                <div
-                  key={platform.id}
-                  className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                    selectedPlatform === platform.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                  onClick={() => setSelectedPlatform(platform.id)}
-                >
-                  <div className="flex items-center space-x-3 mb-3">
-                    <IconComponent className="h-6 w-6 text-blue-600" />
-                    <h3 className="font-medium">{platform.name}</h3>
+          <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
+            <SelectTrigger className="w-[240px]">
+              <SelectValue placeholder="Select a platform" />
+            </SelectTrigger>
+            <SelectContent>
+              {IMPORT_PLATFORMS.map((platform) => (
+                <SelectItem key={platform.id} value={platform.id}>
+                  <div className="flex items-center space-x-2">
+                    <platform.icon className="h-4 w-4" />
+                    <span>{platform.name}</span>
                   </div>
-                  <p className="text-sm text-gray-600 mb-3">{platform.description}</p>
-                  <div className="space-y-1 text-xs text-gray-500">
-                    <div>Format: {platform.fileFormat}</div>
-                    <div>Encoding: {platform.encoding}</div>
-                    <div>Currency: {platform.currency}</div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 w-full"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      downloadSampleTemplate(platform.id);
-                    }}
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Sample
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
-      {/* File Upload */}
       {selectedPlatform && (
         <Card>
           <CardHeader>
-            <CardTitle>Upload Transaction File</CardTitle>
+            <CardTitle>Upload {IMPORT_PLATFORMS.find(p => p.id === selectedPlatform)?.name} File</CardTitle>
             <CardDescription>
-              Upload your {IMPORT_PLATFORMS.find(p => p.id === selectedPlatform)?.name} export file
+              Upload your exported {IMPORT_PLATFORMS.find(p => p.id === selectedPlatform)?.name} CSV file.
+              Ensure it's the correct format.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="file-upload">Select File</Label>
-                <Input
-                  id="file-upload"
-                  type="file"
-                  accept=".csv,.txt,.pdf"
-                  onChange={handleFileSelect}
-                  disabled={importing}
-                />
-              </div>
-
-              {file && (
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center space-x-2">
-                    <FileText className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium">{file.name}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {(file.size / 1024).toFixed(1)} KB
-                    </Badge>
-                  </div>
-                </div>
-              )}
-
-              {importing && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>Importing transactions...</span>
-                    <span>{importProgress}%</span>
-                  </div>
-                  <Progress value={importProgress} className="w-full" />
-                </div>
-              )}
-
-              <Button
-                onClick={handleImport}
-                disabled={!file || importing}
-                className="w-full"
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                {importing ? 'Importing...' : 'Import Transactions'}
-              </Button>
+          <CardContent className="space-y-4">
+            <div className="flex items-center space-x-4">
+              <Label htmlFor="file-upload" className="cursor-pointer bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">
+                <Upload className="h-4 w-4 inline-block mr-2" /> Choose File
+              </Label>
+              <Input
+                id="file-upload"
+                type="file"
+                className="hidden"
+                onChange={handleFileUpload}
+                accept=".csv,.txt"
+              />
+              {file && <Badge variant="secondary">{file.name}</Badge>}
+            </div>
+            <div className="text-sm text-gray-500">
+              <p>Expected fields for {IMPORT_PLATFORMS.find(p => p.id === selectedPlatform)?.name}:</p>
+              <ol className="list-decimal list-inside">
+                {IMPORT_PLATFORMS.find(p => p.id === selectedPlatform)?.sampleFields.map((field, index) => (
+                  <li key={index}>{field}</li>
+                ))}
+              </ol>
             </div>
           </CardContent>
         </Card>
       )}
-
-      {/* Import Results */}
-      {importResults && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Import Results</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <div className="text-2xl font-bold text-green-600">{importResults.imported}</div>
-                <div className="text-sm text-gray-600">Imported</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-yellow-600">{importResults.skipped}</div>
-                <div className="text-sm text-gray-600">Skipped (Duplicates)</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-blue-600">{importResults.total}</div>
-                <div className="text-sm text-gray-600">Total Processed</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Instructions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Import Instructions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 text-sm">
-            <div>
-              <h4 className="font-medium mb-2">Alipay (支付宝)</h4>
-              <ol className="list-decimal list-inside space-y-1 text-gray-600">
-                <li>Open Alipay app → Me → Bill → Export Bill</li>
-                <li>Select date range and export as CSV</li>
-                <li>Upload the downloaded CSV file</li>
-              </ol>
-            </div>
-            
-            <div>
-              <h4 className="font-medium mb-2">WeChat Pay (微信支付)</h4>
-              <ol className="list-decimal list-inside space-y-1 text-gray-600">
-                <li>Open WeChat → Me → Pay → Wallet → Bill</li>
-                <li>Select date range and export as CSV</li>
-                <li>Upload the downloaded CSV file</li>
-              </ol>
-            </div>
-
-            <div>
-              <h4 className="font-medium mb-2">Generic LLM Parser</h4>
-              <ol className="list-decimal list-inside space-y-1 text-gray-600">
-                <li>Upload any transaction file (CSV, TXT, PDF)</li>
-                <li>AI will automatically detect and parse the format</li>
-                <li>Review and confirm the parsed transactions</li>
-              </ol>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

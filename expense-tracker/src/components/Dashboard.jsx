@@ -2,27 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { 
-  DollarSign,
-  TrendingUp,
+  DollarSign, 
+  TrendingUp, 
+  TrendingDown, 
   Calendar,
-  TrendingDown
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react';
 import { 
   collection, 
-  getDocs, 
   query, 
   orderBy, 
-  limit,
+  limit, 
+  getDocs,
   where,
-  Timestamp 
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { useTransactionUpdates } from '../hooks/useTransactionUpdates';
 
 export default function Dashboard() {
   const { currentUser } = useAuth();
   const { currentLedger } = useLedger();
+  const lastTransactionUpdate = useTransactionUpdates(currentLedger?.id);
+  
   const [dashboardData, setDashboardData] = useState({
     totalBalance: 0,
     monthlySpending: 0,
@@ -30,7 +35,6 @@ export default function Dashboard() {
     recentTransactions: [],
     loading: true
   });
-
   // Calculate dashboard statistics
   const calculateDashboardStats = async () => {
     if (!currentLedger) {
@@ -115,12 +119,12 @@ export default function Dashboard() {
 
   useEffect(() => {
     calculateDashboardStats();
-  }, [currentLedger]);
+  }, [currentLedger, lastTransactionUpdate]);
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('zh-CN', {
       style: 'currency',
-      currency: 'USD'
+      currency: 'CNY'
     }).format(amount);
   };
 

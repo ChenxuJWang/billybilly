@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
           displayName: displayName,
           createdAt: new Date(),
           preferences: {
-            currency: 'USD',
+            currency: 'CNY',
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
           }
         });
@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
           members: {
             [result.user.uid]: 'owner'
           },
-          currency: 'USD'
+          currency: 'CNY'
         });
 
         // Set the default ledger as current

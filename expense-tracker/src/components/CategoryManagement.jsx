@@ -77,6 +77,24 @@ export default function CategoryManagement() {
     type: 'expense'
   });
 
+  // Render emoji with twemoji
+  const renderEmoji = (emoji) => {
+    if (!emoji) return null;
+    
+    return (
+      <span 
+        dangerouslySetInnerHTML={{
+          __html: twemoji.parse(emoji, {
+            folder: 'svg',
+            ext: '.svg',
+            base: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/'
+          })
+        }}
+        style={{ width: '20px', height: '20px', display: 'inline-block' }}
+      />
+    );
+  };
+
   // Fetch categories
   const fetchCategories = async () => {
     if (!currentLedger) return;
@@ -105,7 +123,7 @@ export default function CategoryManagement() {
 
   // Create default categories if none exist
   const createDefaultCategories = async () => {
-    if (!currentLedger || !canEdit) return;
+    if (!currentLedger || !canEdit()) return;
 
     try {
       const categoriesRef = collection(db, 'ledgers', currentLedger.id, 'categories');
@@ -139,7 +157,7 @@ export default function CategoryManagement() {
   // Add new category
   const handleAddCategory = async (e) => {
     e.preventDefault();
-    if (!currentLedger || !canEdit) return;
+    if (!currentLedger || !canEdit()) return;
 
     try {
       const categoriesRef = collection(db, 'ledgers', currentLedger.id, 'categories');
@@ -162,7 +180,7 @@ export default function CategoryManagement() {
   // Update category
   const handleUpdateCategory = async (e) => {
     e.preventDefault();
-    if (!editingCategory || !canEdit) return;
+    if (!editingCategory || !canEdit()) return;
 
     try {
       const categoryRef = doc(db, 'ledgers', currentLedger.id, 'categories', editingCategory.id);
@@ -186,7 +204,7 @@ export default function CategoryManagement() {
 
   // Delete category
   const handleDeleteCategory = async (categoryId) => {
-    if (!canEdit || !confirm('Are you sure you want to delete this category?')) return;
+    if (!canEdit() || !confirm('Are you sure you want to delete this category?')) return;
 
     try {
       const categoryRef = doc(db, 'ledgers', currentLedger.id, 'categories', categoryId);
@@ -214,21 +232,6 @@ export default function CategoryManagement() {
   const cancelEdit = () => {
     setEditingCategory(null);
     setFormData({ name: '', emoji: '📝', type: 'expense' });
-  };
-
-  // Render emoji with twemoji
-  const renderEmoji = (emoji) => {
-    return (
-      <span 
-        dangerouslySetInnerHTML={{
-          __html: twemoji.parse(emoji, {
-            folder: 'svg',
-            ext: '.svg'
-          })
-        }}
-        style={{ width: '20px', height: '20px', display: 'inline-block' }}
-      />
-    );
   };
 
   useEffect(() => {
@@ -268,7 +271,7 @@ export default function CategoryManagement() {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Category Management</h1>
-        {canEdit && (
+        {canEdit() && (
           <Button onClick={() => setShowAddForm(true)} className="flex items-center space-x-2">
             <Plus className="h-4 w-4" />
             <span>Add Category</span>
@@ -389,7 +392,7 @@ export default function CategoryManagement() {
             <Tag className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No Categories Found</h3>
             <p className="text-gray-600 mb-4">Create categories to organize your transactions</p>
-            {canEdit && (
+            {canEdit() && (
               <Button onClick={createDefaultCategories} className="flex items-center space-x-2 mx-auto">
                 <Plus className="h-4 w-4" />
                 <span>Create Default Categories</span>
@@ -416,7 +419,7 @@ export default function CategoryManagement() {
                       {renderEmoji(category.emoji)}
                       <span className="font-medium">{category.name}</span>
                     </div>
-                    {canEdit && (
+                    {canEdit() && (
                       <div className="flex space-x-2">
                         <Button
                           size="sm"
@@ -459,7 +462,7 @@ export default function CategoryManagement() {
                       {renderEmoji(category.emoji)}
                       <span className="font-medium">{category.name}</span>
                     </div>
-                    {canEdit && (
+                    {canEdit() && (
                       <div className="flex space-x-2">
                         <Button
                           size="sm"
