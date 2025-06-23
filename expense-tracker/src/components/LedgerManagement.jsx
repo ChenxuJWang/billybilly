@@ -32,6 +32,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
 import InviteUser from './InviteUser';
+import { ProfileImageGroup } from './ProfileImage';
 
 const CURRENCY_OPTIONS = [
   { value: 'CNY', label: '¥ Chinese Yuan (CNY)' },
@@ -166,6 +167,19 @@ export default function LedgerManagement() {
   const getMemberCount = (ledger) => {
     if (!ledger.members) return 0;
     return Object.keys(ledger.members).length;
+  };
+
+  // Get member users for profile images
+  const getMemberUsers = (ledger) => {
+    if (!ledger.members) return [];
+    
+    return Object.keys(ledger.members).map(userId => ({
+      uid: userId,
+      displayName: userId === currentUser?.uid ? 
+        (currentUser.displayName || currentUser.email) : 
+        `User ${userId.slice(0, 8)}`, // Fallback display name
+      email: userId === currentUser?.uid ? currentUser.email : `${userId.slice(0, 8)}@example.com`
+    }));
   };
 
   useEffect(() => {
@@ -318,10 +332,16 @@ export default function LedgerManagement() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Members:</span>
-                    <span className="font-medium flex items-center">
-                      <Users className="h-3 w-3 mr-1" />
-                      {memberCount}
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <ProfileImageGroup 
+                        users={getMemberUsers(ledger)} 
+                        size="xs" 
+                        maxDisplay={3}
+                      />
+                      <span className="font-medium text-xs">
+                        {memberCount}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Role:</span>

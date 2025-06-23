@@ -31,6 +31,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import ProfileImage from './ProfileImage';
 
 export default function InviteUser({ ledger, onClose }) {
   const { currentUser } = useAuth();
@@ -317,11 +318,7 @@ export default function InviteUser({ ledger, onClose }) {
                 {members.map((member) => (
                   <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                        <span className="text-sm font-medium text-blue-600">
-                          {(member.displayName || member.email).charAt(0).toUpperCase()}
-                        </span>
-                      </div>
+                      <ProfileImage user={member} size="sm" />
                       <div>
                         <p className="font-medium">{member.displayName || 'Unknown User'}</p>
                         <p className="text-sm text-gray-600">{member.email}</p>

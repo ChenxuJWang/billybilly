@@ -29,6 +29,7 @@ import TransactionManagement from './components/TransactionManagement'
 import BudgetManagement from './components/BudgetManagement'
 import CategoryManagement from './components/CategoryManagement'
 import LedgerManagement from './components/LedgerManagement'
+import ProfileSettings from './components/ProfileSettings'
 import DataImport from './components/DataImport'
 import './App.css'
 
@@ -199,15 +200,20 @@ function Import() {
 
 function AppSettings() {
   return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Settings</h1>
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+      
+      {/* Profile Settings */}
+      <ProfileSettings />
+      
+      {/* Additional Settings Placeholder */}
       <Card>
         <CardHeader>
-          <CardTitle>Application Settings</CardTitle>
-          <CardDescription>Manage your preferences and account settings</CardDescription>
+          <CardTitle>Application Preferences</CardTitle>
+          <CardDescription>Additional application settings will be available here</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-gray-600">Settings interface will be implemented here.</p>
+          <p className="text-gray-600">More settings options coming soon...</p>
         </CardContent>
       </Card>
     </div>

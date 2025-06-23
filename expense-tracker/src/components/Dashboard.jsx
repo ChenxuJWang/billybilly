@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
 import { useTransactionUpdates } from '../hooks/useTransactionUpdates';
 import InvitationManager from './InvitationManager';
+import ProfileImage from './ProfileImage';
 
 export default function Dashboard() {
   const { currentUser } = useAuth();
@@ -34,6 +35,7 @@ export default function Dashboard() {
     monthlySpending: 0,
     budgetRemaining: 0,
     recentTransactions: [],
+    memberStats: {},
     loading: true
   });
   // Calculate dashboard statistics
@@ -70,20 +72,53 @@ export default function Dashboard() {
       
       let totalBalance = 0;
       let monthlySpending = 0;
+      const memberStats = {}; // Track per-member statistics
+      
+      // Initialize member stats
+      if (currentLedger.members) {
+        Object.keys(currentLedger.members).forEach(memberId => {
+          memberStats[memberId] = {
+            monthlyIncome: 0,
+            monthlySpending: 0,
+            totalIncome: 0,
+            totalSpending: 0
+          };
+        });
+      }
       
       allSnapshot.forEach((doc) => {
         const data = doc.data();
         const transactionDate = data.date?.toDate() || new Date();
         const amount = data.amount || 0;
+        const userId = data.userId || data.paidBy || currentUser?.uid;
+        const isCurrentMonth = transactionDate >= monthStart && transactionDate <= monthEnd;
+        
+        // Initialize member stats if not exists
+        if (userId && !memberStats[userId]) {
+          memberStats[userId] = {
+            monthlyIncome: 0,
+            monthlySpending: 0,
+            totalIncome: 0,
+            totalSpending: 0
+          };
+        }
         
         if (data.type === 'income') {
           totalBalance += amount;
+          if (userId && memberStats[userId]) {
+            memberStats[userId].totalIncome += amount;
+            if (isCurrentMonth) {
+              memberStats[userId].monthlyIncome += amount;
+            }
+          }
         } else {
           totalBalance -= amount;
-          
-          // Calculate monthly spending
-          if (transactionDate >= monthStart && transactionDate <= monthEnd) {
-            monthlySpending += amount;
+          if (userId && memberStats[userId]) {
+            memberStats[userId].totalSpending += amount;
+            if (isCurrentMonth) {
+              memberStats[userId].monthlySpending += amount;
+              monthlySpending += amount;
+            }
           }
         }
       });
@@ -109,6 +144,7 @@ export default function Dashboard() {
         monthlySpending,
         budgetRemaining,
         recentTransactions,
+        memberStats,
         loading: false
       });
 
@@ -138,6 +174,39 @@ export default function Dashboard() {
     if (diffDays === 2) return 'Yesterday';
     if (diffDays <= 7) return `${diffDays - 1} days ago`;
     return date.toLocaleDateString();
+  };
+
+  // Get member details for display
+  const getMemberDetails = (memberId) => {
+    if (memberId === currentUser?.uid) {
+      return {
+        uid: memberId,
+        displayName: currentUser.displayName || currentUser.email,
+        email: currentUser.email
+      };
+    }
+    
+    // For other members, use fallback data
+    return {
+      uid: memberId,
+      displayName: `User ${memberId.slice(0, 8)}`,
+      email: `${memberId.slice(0, 8)}@example.com`
+    };
+  };
+
+  // Get members with stats for display
+  const getMembersWithStats = () => {
+    if (!dashboardData.memberStats || !currentLedger?.members) return [];
+    
+    return Object.keys(currentLedger.members).map(memberId => ({
+      ...getMemberDetails(memberId),
+      stats: dashboardData.memberStats[memberId] || {
+        monthlyIncome: 0,
+        monthlySpending: 0,
+        totalIncome: 0,
+        totalSpending: 0
+      }
+    }));
   };
 
   if (dashboardData.loading) {
@@ -202,9 +271,34 @@ export default function Dashboard() {
             <div className="text-2xl font-bold text-red-600">
               {formatCurrency(dashboardData.monthlySpending)}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground mb-3">
               This month's expenses
             </p>
+            
+            {/* Per-member breakdown */}
+            {getMembersWithStats().length > 1 && (
+              <div className="space-y-2 pt-2 border-t">
+                <p className="text-xs font-medium text-gray-700">Member Breakdown:</p>
+                {getMembersWithStats().map((member) => (
+                  <div key={member.uid} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center space-x-2">
+                      <ProfileImage user={member} size="xs" />
+                      <span className="text-gray-600">
+                        {member.displayName === currentUser?.displayName ? 'You' : member.displayName}
+                      </span>
+                    </div>
+                    <div className="flex space-x-3 text-right">
+                      <span className="text-green-600">
+                        +{formatCurrency(member.stats.monthlyIncome)}
+                      </span>
+                      <span className="text-red-600">
+                        -{formatCurrency(member.stats.monthlySpending)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
         
@@ -243,11 +337,21 @@ export default function Dashboard() {
             <div className="space-y-4">
               {dashboardData.recentTransactions.map((transaction) => (
                 <div key={transaction.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">{transaction.description}</p>
-                    <p className="text-sm text-gray-500">
-                      {transaction.paymentMethod} • {formatDate(transaction.date)}
-                    </p>
+                  <div className="flex items-center space-x-3 flex-1">
+                    <ProfileImage 
+                      user={{
+                        uid: transaction.userId || currentUser?.uid,
+                        displayName: transaction.userName || currentUser?.displayName,
+                        email: transaction.userEmail || currentUser?.email
+                      }} 
+                      size="sm" 
+                    />
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">{transaction.description}</p>
+                      <p className="text-sm text-gray-500">
+                        {transaction.paymentMethod} • {formatDate(transaction.date)}
+                      </p>
+                    </div>
                   </div>
                   <div className={`font-semibold ${
                     transaction.type === 'income' ? 'text-green-600' : 'text-red-600'

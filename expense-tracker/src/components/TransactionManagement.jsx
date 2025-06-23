@@ -18,7 +18,9 @@ import {
   DollarSign,
   Tag,
   CheckSquare,
-  Square
+  Square,
+  Users,
+  UserCheck
 } from 'lucide-react';
 import { 
   collection, 
@@ -35,12 +37,14 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import ProfileImage, { ProfileImageWithName } from './ProfileImage';
 
 export default function TransactionManagement() {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
@@ -58,7 +62,12 @@ export default function TransactionManagement() {
     paymentMethod: 'credit card',
     notes: '',
     includeInBudget: true,
-    date: new Date().toISOString().split('T')[0]
+    date: new Date().toISOString().split('T')[0],
+    // Splitting fields
+    paidBy: currentUser?.uid || '',
+    splitType: 'none', // 'none', 'equal', 'custom'
+    splitWith: [], // Array of user IDs
+    splitAmounts: {} // Object with userId: amount pairs for custom splits
   });
 
   // Batch edit state
@@ -120,6 +129,66 @@ export default function TransactionManagement() {
     }
   };
 
+  // Fetch members
+  const fetchMembers = async () => {
+    if (!currentLedger?.members) return;
+
+    try {
+      const memberList = [];
+      
+      // Get member details from users collection
+      for (const [userId, role] of Object.entries(currentLedger.members)) {
+        try {
+          const userDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', userId)));
+          let userData = { uid: userId, role };
+          
+          if (!userDoc.empty) {
+            const userInfo = userDoc.docs[0].data();
+            userData = {
+              ...userData,
+              displayName: userInfo.displayName,
+              email: userInfo.email,
+              profileColor: userInfo.profileColor
+            };
+          } else if (userId === currentUser?.uid) {
+            // Use current user data if user document doesn't exist
+            userData = {
+              ...userData,
+              displayName: currentUser.displayName,
+              email: currentUser.email
+            };
+          } else {
+            // Fallback for unknown users
+            userData = {
+              ...userData,
+              displayName: `User ${userId.slice(0, 8)}`,
+              email: `${userId.slice(0, 8)}@example.com`
+            };
+          }
+          
+          memberList.push(userData);
+        } catch (error) {
+          console.error(`Error fetching user ${userId}:`, error);
+          // Add user with minimal info if fetch fails
+          memberList.push({
+            uid: userId,
+            role,
+            displayName: userId === currentUser?.uid ? 
+              (currentUser.displayName || currentUser.email) : 
+              `User ${userId.slice(0, 8)}`,
+            email: userId === currentUser?.uid ? 
+              currentUser.email : 
+              `${userId.slice(0, 8)}@example.com`
+          });
+        }
+      }
+
+      setMembers(memberList);
+    } catch (error) {
+      console.error('Error fetching members:', error);
+    }
+  };
+
   // Create default categories
   const createDefaultCategories = async () => {
     const defaultCategories = [
@@ -160,7 +229,12 @@ export default function TransactionManagement() {
         amount: parseFloat(formData.amount),
         date: Timestamp.fromDate(new Date(formData.date)),
         createdAt: Timestamp.now(),
-        userId: currentUser.uid
+        userId: currentUser.uid,
+        // Include splitting data
+        paidBy: formData.paidBy,
+        splitType: formData.splitType,
+        splitWith: formData.splitWith,
+        splitAmounts: formData.splitAmounts
       };
 
       if (editingTransaction) {
@@ -179,7 +253,12 @@ export default function TransactionManagement() {
         paymentMethod: 'credit card',
         notes: '',
         includeInBudget: true,
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        // Reset splitting fields
+        paidBy: currentUser?.uid || '',
+        splitType: 'none',
+        splitWith: [],
+        splitAmounts: {}
       });
       setShowAddForm(false);
       setEditingTransaction(null);
@@ -250,11 +329,51 @@ export default function TransactionManagement() {
     }
   };
 
+  // Splitting helper functions
+  const handleSplitTypeChange = (splitType) => {
+    setFormData(prev => ({
+      ...prev,
+      splitType,
+      splitWith: splitType === 'none' ? [] : prev.splitWith,
+      splitAmounts: splitType === 'none' ? {} : prev.splitAmounts
+    }));
+  };
+
+  const handleSplitWithEveryone = () => {
+    const allMemberIds = members.map(m => m.uid);
+    setFormData(prev => ({
+      ...prev,
+      splitType: 'equal',
+      splitWith: allMemberIds
+    }));
+  };
+
+  const handleSplitWithToggle = (userId) => {
+    setFormData(prev => ({
+      ...prev,
+      splitWith: prev.splitWith.includes(userId)
+        ? prev.splitWith.filter(id => id !== userId)
+        : [...prev.splitWith, userId]
+    }));
+  };
+
+  const isMultiMemberLedger = members.length > 1;
+
   useEffect(() => {
     if (currentLedger) {
-      Promise.all([fetchTransactions(), fetchCategories()]).finally(() => setLoading(false));
+      Promise.all([fetchTransactions(), fetchCategories(), fetchMembers()]).finally(() => setLoading(false));
     }
   }, [currentLedger]);
+
+  // Update form data when current user changes
+  useEffect(() => {
+    if (currentUser) {
+      setFormData(prev => ({
+        ...prev,
+        paidBy: currentUser.uid
+      }));
+    }
+  }, [currentUser]);
 
   if (loading) {
     return <div className="p-6">Loading transactions...</div>;
@@ -394,6 +513,96 @@ export default function TransactionManagement() {
                   rows={3}
                 />
               </div>
+
+              {/* Splitting Section - Only show for multi-member ledgers */}
+              {isMultiMemberLedger && (
+                <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                  <div className="flex items-center space-x-2">
+                    <Users className="h-4 w-4" />
+                    <Label className="text-base font-medium">Expense Splitting</Label>
+                  </div>
+
+                  {/* Paid By */}
+                  <div>
+                    <Label>Paid By</Label>
+                    <Select value={formData.paidBy} onValueChange={(value) => setFormData({ ...formData, paidBy: value })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select who paid" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {members.map((member) => (
+                          <SelectItem key={member.uid} value={member.uid}>
+                            <div className="flex items-center space-x-2">
+                              <ProfileImage user={member} size="xs" />
+                              <span>{member.displayName || member.email}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Split Options */}
+                  <div>
+                    <Label>Split Expense</Label>
+                    <div className="flex space-x-2 mt-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={formData.splitType === 'none' ? 'default' : 'outline'}
+                        onClick={() => handleSplitTypeChange('none')}
+                      >
+                        Don't Split
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={formData.splitType === 'equal' ? 'default' : 'outline'}
+                        onClick={handleSplitWithEveryone}
+                      >
+                        <UserCheck className="h-3 w-3 mr-1" />
+                        Everyone
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Member Selection - Only show when not "Don't Split" */}
+                  {formData.splitType !== 'none' && (
+                    <div>
+                      <Label>Split With</Label>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        {members.map((member) => (
+                          <div
+                            key={member.uid}
+                            className={`
+                              flex items-center space-x-2 p-2 border rounded cursor-pointer transition-colors
+                              ${formData.splitWith.includes(member.uid) 
+                                ? 'border-blue-500 bg-blue-50' 
+                                : 'border-gray-200 hover:border-gray-300'
+                              }
+                            `}
+                            onClick={() => handleSplitWithToggle(member.uid)}
+                          >
+                            <Checkbox
+                              checked={formData.splitWith.includes(member.uid)}
+                              onChange={() => {}} // Handled by parent click
+                            />
+                            <ProfileImage user={member} size="xs" />
+                            <span className="text-sm">{member.displayName || member.email}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {formData.splitWith.length > 0 && (
+                        <p className="text-xs text-gray-600 mt-2">
+                          Split between {formData.splitWith.length} member{formData.splitWith.length > 1 ? 's' : ''}
+                          {formData.amount && ` (${(parseFloat(formData.amount) / formData.splitWith.length).toFixed(2)} each)`}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="includeInBudget"
