@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users collection: Only authenticated users can read/write their own user document
+    match /users/{userId} {
+      allow read, write: if request.auth.uid == userId;
+    }
+
+    // Ledgers collection: Access controlled by members map and roles
+    match /ledgers/{ledgerId} {
+      // Allow read if user is a member of the ledger
+      allow read: if request.auth.uid in resource.data.members;
+
+      // Allow create if user is authenticated and sets themselves as owner
+      allow create: if request.auth.uid != null && 
+                       request.auth.uid == request.resource.data.ownerId && 
+                       request.resource.data.members[request.auth.uid] == 'owner';
+
+      // Allow update if user is an owner of the ledger
+      allow update: if request.auth.uid in resource.data.members && 
+                       resource.data.members[request.auth.uid] == 'owner';
+
+      // Allow delete if user is the owner of the ledger
+      allow delete: if request.auth.uid == resource.data.ownerId;
+
+      // Subcollections within a ledger
+      match /{document=**} {
+        // Allow read if user is a member of the ledger
+        allow read: if request.auth.uid in get(/databases/$(database)/documents/ledgers/$(ledgerId)).data.members;
+
+        // Allow write based on role (member or owner)
+        allow write: if request.auth.uid in get(/databases/$(database)/documents/ledgers/$(ledgerId)).data.members;
+      }
+    }
+  }
+}
+
