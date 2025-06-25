@@ -70,6 +70,9 @@ export default function TransactionManagement() {
     splitAmounts: {} // Object with userId: amount pairs for custom splits
   });
 
+  // Split mode state for the new button logic
+  const [splitMode, setSplitMode] = useState('none'); // 'none', 'individuals', 'everyone'
+
   // Batch edit state
   const [batchEditData, setBatchEditData] = useState({
     categoryId: '',
@@ -349,12 +352,62 @@ export default function TransactionManagement() {
   };
 
   const handleSplitWithToggle = (userId) => {
-    setFormData(prev => ({
-      ...prev,
-      splitWith: prev.splitWith.includes(userId)
-        ? prev.splitWith.filter(id => id !== userId)
-        : [...prev.splitWith, userId]
-    }));
+    setFormData(prev => {
+      const currentSplitWith = prev.splitWith || []; // Safe default
+      const newSplitWith = currentSplitWith.includes(userId)
+        ? currentSplitWith.filter(id => id !== userId)
+        : [...currentSplitWith, userId];
+      
+      // Update split mode based on selection
+      updateSplitModeBasedOnSelection(newSplitWith);
+      
+      return {
+        ...prev,
+        splitWith: newSplitWith,
+        splitType: newSplitWith.length > 0 ? 'equal' : 'none'
+      };
+    });
+  };
+
+  // New split mode handlers
+  const handleSplitModeChange = (mode) => {
+    setSplitMode(mode);
+    
+    if (mode === 'none') {
+      setFormData(prev => ({
+        ...prev,
+        splitType: 'none',
+        splitWith: []
+      }));
+    } else if (mode === 'everyone') {
+      const allMemberIds = members.filter(m => m.uid !== currentUser?.uid).map(m => m.uid);
+      setFormData(prev => ({
+        ...prev,
+        splitType: 'equal',
+        splitWith: allMemberIds
+      }));
+    } else if (mode === 'individuals') {
+      // Keep current selection but ensure splitType is set
+      setFormData(prev => ({
+        ...prev,
+        splitType: prev.splitWith && prev.splitWith.length > 0 ? 'equal' : 'none'
+      }));
+    }
+  };
+
+  // Update split mode based on current selection
+  const updateSplitModeBasedOnSelection = (splitWith) => {
+    const allOtherMembers = members.filter(m => m.uid !== currentUser?.uid);
+    const allOtherMemberIds = allOtherMembers.map(m => m.uid);
+    
+    if (splitWith.length === 0) {
+      setSplitMode('none');
+    } else if (splitWith.length === allOtherMemberIds.length && 
+               allOtherMemberIds.every(id => splitWith.includes(id))) {
+      setSplitMode('everyone');
+    } else {
+      setSplitMode('individuals');
+    }
   };
 
   const isMultiMemberLedger = members.length > 1;
@@ -522,24 +575,19 @@ export default function TransactionManagement() {
                     <Label className="text-base font-medium">Expense Splitting</Label>
                   </div>
 
-                  {/* Paid By */}
+                  {/* Paid By - Read-only showing current user */}
                   <div>
                     <Label>Paid By</Label>
-                    <Select value={formData.paidBy} onValueChange={(value) => setFormData({ ...formData, paidBy: value })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select who paid" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {members.map((member) => (
-                          <SelectItem key={member.uid} value={member.uid}>
-                            <div className="flex items-center space-x-2">
-                              <ProfileImage user={member} size="xs" />
-                              <span>{member.displayName || member.email}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center space-x-2 p-2 border rounded bg-gray-100">
+                      <ProfileImage user={{
+                        uid: currentUser?.uid,
+                        displayName: currentUser?.displayName || currentUser?.email,
+                        email: currentUser?.email
+                      }} size="xs" />
+                      <span className="text-sm text-gray-700">
+                        {currentUser?.displayName || currentUser?.email || 'You'}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Split Options */}
@@ -549,16 +597,25 @@ export default function TransactionManagement() {
                       <Button
                         type="button"
                         size="sm"
-                        variant={formData.splitType === 'none' ? 'default' : 'outline'}
-                        onClick={() => handleSplitTypeChange('none')}
+                        variant={splitMode === 'none' ? 'default' : 'outline'}
+                        onClick={() => handleSplitModeChange('none')}
                       >
                         Don't Split
                       </Button>
                       <Button
                         type="button"
                         size="sm"
-                        variant={formData.splitType === 'equal' ? 'default' : 'outline'}
-                        onClick={handleSplitWithEveryone}
+                        variant={splitMode === 'individuals' ? 'default' : 'outline'}
+                        onClick={() => handleSplitModeChange('individuals')}
+                      >
+                        <Users className="h-3 w-3 mr-1" />
+                        Individuals
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={splitMode === 'everyone' ? 'default' : 'outline'}
+                        onClick={() => handleSplitModeChange('everyone')}
                       >
                         <UserCheck className="h-3 w-3 mr-1" />
                         Everyone
@@ -566,36 +623,39 @@ export default function TransactionManagement() {
                     </div>
                   </div>
 
-                  {/* Member Selection - Only show when not "Don't Split" */}
-                  {formData.splitType !== 'none' && (
+                  {/* Member Selection - Only show when "Individuals" or "Everyone" is selected */}
+                  {(splitMode === 'individuals' || splitMode === 'everyone') && (
                     <div>
                       <Label>Split With</Label>
                       <div className="grid grid-cols-2 gap-2 mt-2">
-                        {members.map((member) => (
-                          <div
-                            key={member.uid}
-                            className={`
-                              flex items-center space-x-2 p-2 border rounded cursor-pointer transition-colors
-                              ${formData.splitWith.includes(member.uid) 
-                                ? 'border-blue-500 bg-blue-50' 
-                                : 'border-gray-200 hover:border-gray-300'
-                              }
-                            `}
-                            onClick={() => handleSplitWithToggle(member.uid)}
-                          >
-                            <Checkbox
-                              checked={formData.splitWith.includes(member.uid)}
-                              onChange={() => {}} // Handled by parent click
-                            />
-                            <ProfileImage user={member} size="xs" />
-                            <span className="text-sm">{member.displayName || member.email}</span>
-                          </div>
-                        ))}
+                        {members.map((member) => {
+                          const splitWith = formData.splitWith || []; // Safe default
+                          return (
+                            <div
+                              key={member.uid}
+                              className={`
+                                flex items-center space-x-2 p-2 border rounded cursor-pointer transition-colors
+                                ${splitWith.includes(member.uid) 
+                                  ? 'border-blue-500 bg-blue-50' 
+                                  : 'border-gray-200 hover:border-gray-300'
+                                }
+                              `}
+                              onClick={() => handleSplitWithToggle(member.uid)}
+                            >
+                              <Checkbox
+                                checked={splitWith.includes(member.uid)}
+                                onChange={() => {}} // Handled by parent click
+                              />
+                              <ProfileImage user={member} size="xs" />
+                              <span className="text-sm">{member.displayName || member.email}</span>
+                            </div>
+                          );
+                        })}
                       </div>
-                      {formData.splitWith.length > 0 && (
+                      {(formData.splitWith || []).length > 0 && (
                         <p className="text-xs text-gray-600 mt-2">
-                          Split between {formData.splitWith.length} member{formData.splitWith.length > 1 ? 's' : ''}
-                          {formData.amount && ` (${(parseFloat(formData.amount) / formData.splitWith.length).toFixed(2)} each)`}
+                          Split between {(formData.splitWith || []).length} member{(formData.splitWith || []).length > 1 ? 's' : ''}
+                          {formData.amount && (formData.splitWith || []).length > 0 && ` (${(parseFloat(formData.amount) / (formData.splitWith || []).length).toFixed(2)} each)`}
                         </p>
                       )}
                     </div>
@@ -797,6 +857,7 @@ export default function TransactionManagement() {
                             size="sm"
                             onClick={() => {
                               setEditingTransaction(transaction);
+                              const transactionSplitWith = transaction.splitWith || [];
                               setFormData({
                                 amount: transaction.amount.toString(),
                                 type: transaction.type,
@@ -805,8 +866,26 @@ export default function TransactionManagement() {
                                 paymentMethod: transaction.paymentMethod || 'credit card',
                                 notes: transaction.notes || '',
                                 includeInBudget: transaction.includeInBudget !== false,
-                                date: transaction.date.toISOString().split('T')[0]
+                                date: transaction.date.toISOString().split('T')[0],
+                                // Initialize splitting fields with safe defaults
+                                paidBy: transaction.paidBy || transaction.userId || currentUser?.uid || '',
+                                splitType: transaction.splitType || 'none',
+                                splitWith: transactionSplitWith,
+                                splitAmounts: transaction.splitAmounts || {}
                               });
+                              
+                              // Initialize split mode based on transaction data
+                              const allOtherMembers = members.filter(m => m.uid !== currentUser?.uid);
+                              const allOtherMemberIds = allOtherMembers.map(m => m.uid);
+                              
+                              if (transactionSplitWith.length === 0) {
+                                setSplitMode('none');
+                              } else if (transactionSplitWith.length === allOtherMemberIds.length && 
+                                         allOtherMemberIds.every(id => transactionSplitWith.includes(id))) {
+                                setSplitMode('everyone');
+                              } else {
+                                setSplitMode('individuals');
+                              }
                             }}
                           >
                             <Edit className="h-4 w-4" />
