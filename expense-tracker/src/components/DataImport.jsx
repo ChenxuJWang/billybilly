@@ -309,7 +309,8 @@ export default function DataImport() {
           platform: transaction.platform,
           originalData: transaction.originalData,
           createdAt: new Date(),
-          createdBy: currentUser.uid
+          createdBy: currentUser.uid,
+          paidBy: currentUser.uid
         });
 
         imported++;

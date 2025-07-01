@@ -8,11 +8,11 @@ import { Textarea } from '@/components/ui/textarea.jsx';
 import { Checkbox } from '@/components/ui/checkbox.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
-import { 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Filter, 
+import {
+  Plus,
+  Edit,
+  Trash2,
+  Filter,
   Search,
   Calendar,
   DollarSign,
@@ -22,17 +22,17 @@ import {
   Users,
   UserCheck
 } from 'lucide-react';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  doc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  orderBy, 
+import {
+  collection,
+  addDoc,
+  getDocs,
+  doc,
+  updateDoc,
+  deleteDoc,
+  query,
+  orderBy,
   where,
-  Timestamp 
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -48,6 +48,8 @@ export default function TransactionManagement() {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [selectedTransactions, setSelectedTransactions] = useState([]);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [error, setError] = useState('');
@@ -66,7 +68,7 @@ export default function TransactionManagement() {
     // Splitting fields
     paidBy: currentUser?.uid || '',
     splitType: 'none', // 'none', 'equal', 'custom'
-    splitWith: [], // Array of user IDs
+    splitWith: [], // CRITICAL: Always initialize as empty array
     splitAmounts: {} // Object with userId: amount pairs for custom splits
   });
 
@@ -78,6 +80,28 @@ export default function TransactionManagement() {
     categoryId: '',
     includeInBudget: null
   });
+
+  // Reset form function
+  const resetForm = () => {
+    setFormData({
+      amount: '',
+      type: 'expense',
+      description: '',
+      categoryId: '',
+      paymentMethod: 'credit card',
+      notes: '',
+      includeInBudget: true,
+      date: new Date().toISOString().split('T')[0],
+      paidBy: currentUser?.uid || '',
+      splitType: 'none',
+      splitWith: [], // CRITICAL: Reset to empty array
+      splitAmounts: {},
+    });
+    setSplitMode('none'); // CRITICAL FIX: Reset split mode to default
+    setIsEditing(false);
+    setEditingId(null);
+    setEditingTransaction(null);
+  };
 
   // Fetch transactions
   const fetchTransactions = async () => {
@@ -237,38 +261,30 @@ export default function TransactionManagement() {
         paidBy: formData.paidBy,
         splitType: formData.splitType,
         splitWith: formData.splitWith,
-        splitAmounts: formData.splitAmounts
+        splitAmounts: formData.splitAmounts,
       };
 
       if (editingTransaction) {
-        await updateDoc(doc(db, 'ledgers', currentLedger.id, 'transactions', editingTransaction.id), transactionData);
+        await updateDoc(
+          doc(db, 'ledgers', currentLedger.id, 'transactions', editingTransaction.id),
+          transactionData
+        );
         setSuccess('Transaction updated successfully');
       } else {
-        await addDoc(collection(db, 'ledgers', currentLedger.id, 'transactions'), transactionData);
+        await addDoc(
+          collection(db, 'ledgers', currentLedger.id, 'transactions'),
+          transactionData
+        );
         setSuccess('Transaction added successfully');
       }
 
-      setFormData({
-        amount: '',
-        type: 'expense',
-        description: '',
-        categoryId: '',
-        paymentMethod: 'credit card',
-        notes: '',
-        includeInBudget: true,
-        date: new Date().toISOString().split('T')[0],
-        // Reset splitting fields
-        paidBy: currentUser?.uid || '',
-        splitType: 'none',
-        splitWith: [],
-        splitAmounts: {}
-      });
+      resetForm(); // Call resetForm after successful submission
       setShowAddForm(false);
       setEditingTransaction(null);
-      await fetchTransactions();
+      await fetchTransactions(); // Refresh transactions after submission
     } catch (error) {
-      console.error('Error saving transaction:', error);
-      setError('Failed to save transaction');
+      console.error('Error adding/updating transaction:', error);
+      setError('Failed to add/update transaction');
     }
   };
 
@@ -286,6 +302,29 @@ export default function TransactionManagement() {
     } catch (error) {
       console.error('Error deleting transaction:', error);
       setError('Failed to delete transaction');
+    }
+  };
+
+  // Handle batch deletion
+  const handleBatchDelete = async () => {
+    if (!canEdit() || selectedTransactions.length === 0) return;
+
+    if (!window.confirm(`Are you sure you want to delete ${selectedTransactions.length} selected transactions?`)) {
+      return;
+    }
+
+    try {
+      setError("");
+      for (const transactionId of selectedTransactions) {
+        await deleteDoc(doc(db, "ledgers", currentLedger.id, "transactions", transactionId));
+      }
+
+      setSuccess(`Deleted ${selectedTransactions.length} transactions`);
+      setSelectedTransactions([]);
+      await fetchTransactions();
+    } catch (error) {
+      console.error("Error batch deleting transactions:", error);
+      setError("Failed to delete transactions");
     }
   };
 
@@ -311,6 +350,31 @@ export default function TransactionManagement() {
     } catch (error) {
       console.error('Error batch updating transactions:', error);
       setError('Failed to update transactions');
+    }
+  };
+
+  // Handle edit
+  const handleEdit = (transaction) => {
+    setEditingTransaction(transaction);
+    setIsEditing(true);
+    setEditingId(transaction.id);
+    setShowAddForm(true);
+    setFormData({
+      ...transaction,
+      date: transaction.date instanceof Date ? transaction.date.toISOString().split('T')[0] : transaction.date,
+      splitWith: transaction.splitWith || [], // Ensure splitWith is an array
+      splitAmounts: transaction.splitAmounts || {},
+    });
+    // Set splitMode based on the loaded transaction
+    const allOtherMembers = members.filter(m => m.uid !== currentUser?.uid);
+    const allOtherMemberIds = allOtherMembers.map(m => m.uid);
+    if (transaction.splitWith.length === 0) {
+      setSplitMode('none');
+    } else if (transaction.splitWith.length === allOtherMemberIds.length && 
+               allOtherMemberIds.every(id => transaction.splitWith.includes(id))) {
+      setSplitMode('everyone');
+    } else {
+      setSplitMode('individuals');
     }
   };
 
@@ -343,7 +407,7 @@ export default function TransactionManagement() {
   };
 
   const handleSplitWithEveryone = () => {
-    const allMemberIds = members.map(m => m.uid);
+    const allMemberIds = members.filter(m => m.uid !== currentUser?.uid).map(m => m.uid);
     setFormData(prev => ({
       ...prev,
       splitType: 'equal',
@@ -351,15 +415,19 @@ export default function TransactionManagement() {
     }));
   };
 
+  // CRITICAL FIX: Safe member toggle with proper array handling
   const handleSplitWithToggle = (userId) => {
     setFormData(prev => {
+      // DEFENSIVE PROGRAMMING: Ensure splitWith is always an array
       const currentSplitWith = prev.splitWith || []; // Safe default
       const newSplitWith = currentSplitWith.includes(userId)
         ? currentSplitWith.filter(id => id !== userId)
         : [...currentSplitWith, userId];
       
-      // Update split mode based on selection
-      updateSplitModeBasedOnSelection(newSplitWith);
+      // CRITICAL FIX: Use setTimeout to prevent infinite loops
+      setTimeout(() => {
+        updateSplitModeBasedOnSelection(newSplitWith);
+      }, 0);
       
       return {
         ...prev,
@@ -395,7 +463,7 @@ export default function TransactionManagement() {
     }
   };
 
-  // Update split mode based on current selection
+  // CRITICAL FIX: Intelligent auto-adjustment logic
   const updateSplitModeBasedOnSelection = (splitWith) => {
     const allOtherMembers = members.filter(m => m.uid !== currentUser?.uid);
     const allOtherMemberIds = allOtherMembers.map(m => m.uid);
@@ -441,16 +509,6 @@ export default function TransactionManagement() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
         <div className="flex space-x-2">
-          {selectedTransactions.length > 0 && (
-            <Button
-              variant="outline"
-              onClick={() => setShowBatchEdit(true)}
-              className="flex items-center space-x-2"
-            >
-              <Edit className="h-4 w-4" />
-              <span>Batch Edit ({selectedTransactions.length})</span>
-            </Button>
-          )}
           {canEdit() && (
             <Button
               onClick={() => setShowAddForm(true)}
@@ -511,6 +569,7 @@ export default function TransactionManagement() {
                   <Label htmlFor="description">Description</Label>
                   <Input
                     id="description"
+                    type="text"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     required
@@ -518,31 +577,19 @@ export default function TransactionManagement() {
                 </div>
                 <div>
                   <Label htmlFor="category">Category</Label>
-                  <Select value={formData.categoryId} onValueChange={(value) => setFormData({ ...formData, categoryId: value })}>
+                  <Select
+                    value={formData.categoryId}
+                    onValueChange={(value) => setFormData({ ...formData, categoryId: value })}
+                  >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
+                      <SelectValue placeholder="Select a category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {categories.filter(cat => cat.type === formData.type).map((category) => (
+                      {categories.map((category) => (
                         <SelectItem key={category.id} value={category.id}>
                           {category.name}
                         </SelectItem>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="paymentMethod">Payment Method</Label>
-                  <Select value={formData.paymentMethod} onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="credit card">Credit Card</SelectItem>
-                      <SelectItem value="debit card">Debit Card</SelectItem>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="bank transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="check">Check</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -556,144 +603,133 @@ export default function TransactionManagement() {
                     required
                   />
                 </div>
+                <div>
+                  <Label htmlFor="paymentMethod">Payment Method</Label>
+                  <Input
+                    id="paymentMethod"
+                    type="text"
+                    value={formData.paymentMethod}
+                    onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  />
+                </div>
+                <div className="md:col-span-2 flex items-center space-x-2">
+                  <Checkbox
+                    id="includeInBudget"
+                    checked={formData.includeInBudget}
+                    onCheckedChange={(checked) => setFormData({ ...formData, includeInBudget: checked })}
+                  />
+                  <Label htmlFor="includeInBudget">Include in Budget</Label>
+                </div>
               </div>
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  rows={3}
-                />
-              </div>
 
-              {/* Splitting Section - Only show for multi-member ledgers */}
-              {isMultiMemberLedger && (
-                <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
-                  <div className="flex items-center space-x-2">
-                    <Users className="h-4 w-4" />
-                    <Label className="text-base font-medium">Expense Splitting</Label>
-                  </div>
-
-                  {/* Paid By - Read-only showing current user */}
+              {/* Splitting Section */}
+              {isMultiMemberLedger && formData.type === 'expense' && (
+                <div className="space-y-4 border p-4 rounded-md">
+                  <h3 className="text-lg font-semibold">Split Expense</h3>
+                  
+                  {/* Paid By */}
                   <div>
-                    <Label>Paid By</Label>
-                    <div className="flex items-center space-x-2 p-2 border rounded bg-gray-100">
-                      <ProfileImage user={{
-                        uid: currentUser?.uid,
-                        displayName: currentUser?.displayName || currentUser?.email,
-                        email: currentUser?.email
-                      }} size="xs" />
-                      <span className="text-sm text-gray-700">
-                        {currentUser?.displayName || currentUser?.email || 'You'}
-                      </span>
-                    </div>
+                    <Label htmlFor="paidBy">Paid By</Label>
+                    <Select
+                      value={formData.paidBy}
+                      onValueChange={(value) => setFormData({ ...formData, paidBy: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select payer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {members.map(member => (
+                          <SelectItem key={member.uid} value={member.uid}>
+                            <ProfileImageWithName user={member} />
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                  {/* Split Options */}
-                  <div>
-                    <Label>Split Expense</Label>
-                    <div className="flex space-x-2 mt-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={splitMode === 'none' ? 'default' : 'outline'}
-                        onClick={() => handleSplitModeChange('none')}
-                      >
-                        Don't Split
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={splitMode === 'individuals' ? 'default' : 'outline'}
-                        onClick={() => handleSplitModeChange('individuals')}
-                      >
-                        <Users className="h-3 w-3 mr-1" />
-                        Individuals
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={splitMode === 'everyone' ? 'default' : 'outline'}
-                        onClick={() => handleSplitModeChange('everyone')}
-                      >
-                        <UserCheck className="h-3 w-3 mr-1" />
-                        Everyone
-                      </Button>
-                    </div>
+                  {/* Split Type Buttons */}
+                  <div className="flex space-x-2">
+                    <Button
+                      type="button"
+                      variant={splitMode === 'none' ? 'default' : 'outline'}
+                      onClick={() => handleSplitModeChange('none')}
+                    >
+                      Don't Split
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={splitMode === 'everyone' ? 'default' : 'outline'}
+                      onClick={() => handleSplitModeChange('everyone')}
+                    >
+                      Split Equally (Everyone Else)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={splitMode === 'individuals' ? 'default' : 'outline'}
+                      onClick={() => handleSplitModeChange('individuals')}
+                    >
+                      Split with Individuals
+                    </Button>
                   </div>
 
-                  {/* Member Selection - Only show when "Individuals" or "Everyone" is selected */}
-                  {(splitMode === 'individuals' || splitMode === 'everyone') && (
-                    <div>
-                      <Label>Split With</Label>
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        {members.map((member) => {
-                          const splitWith = formData.splitWith || []; // Safe default
-                          return (
-                            <div
-                              key={member.uid}
-                              className={`
-                                flex items-center space-x-2 p-2 border rounded cursor-pointer transition-colors
-                                ${splitWith.includes(member.uid) 
-                                  ? 'border-blue-500 bg-blue-50' 
-                                  : 'border-gray-200 hover:border-gray-300'
-                                }
-                              `}
-                              onClick={() => handleSplitWithToggle(member.uid)}
-                            >
-                              <Checkbox
-                                checked={splitWith.includes(member.uid)}
-                                onChange={() => {}} // Handled by parent click
-                              />
-                              <ProfileImage user={member} size="xs" />
-                              <span className="text-sm">{member.displayName || member.email}</span>
-                            </div>
-                          );
+                  {/* Individual Selection for Splitting */}
+                  {splitMode === 'individuals' && (
+                    <div className="space-y-2">
+                      <Label>Select Members to Split With:</Label>
+                      {members.filter(member => member.uid !== formData.paidBy).map(member => (
+                        <div key={member.uid} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`split-with-${member.uid}`}
+                            checked={(formData.splitWith || []).includes(member.uid)}
+                            onCheckedChange={() => handleSplitWithToggle(member.uid)}
+                          />
+                          <Label htmlFor={`split-with-${member.uid}`}>
+                            <ProfileImageWithName user={member} />
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Display calculated split amounts */}
+                  {(formData.splitType === 'equal' && (formData.splitWith || []).length > 0) && (
+                    <div className="border-t pt-4 mt-4">
+                      <h4 className="font-semibold">Split Details:</h4>
+                      <p>Total Amount: ${formData.amount || 0}</p>
+                      <p>Paid By: <ProfileImageWithName user={members.find(m => m.uid === formData.paidBy)} /></p>
+                      <p>Splitting with {(formData.splitWith || []).length} other(s):</p>
+                      <ul>
+                        {(formData.splitWith || []).map(memberId => {
+                          const member = members.find(m => m.uid === memberId);
+                          const perPersonAmount = (formData.amount / ((formData.splitWith || []).length + 1)).toFixed(2);
+                          return member ? (
+                            <li key={member.uid}>- <ProfileImageWithName user={member} />: ${perPersonAmount}</li>
+                          ) : null;
                         })}
-                      </div>
-                      {(formData.splitWith || []).length > 0 && (
-                        <p className="text-xs text-gray-600 mt-2">
-                          Split between {(formData.splitWith || []).length} member{(formData.splitWith || []).length > 1 ? 's' : ''}
-                          {formData.amount && (formData.splitWith || []).length > 0 && ` (${(parseFloat(formData.amount) / (formData.splitWith || []).length).toFixed(2)} each)`}
-                        </p>
-                      )}
+                        <li>- <ProfileImageWithName user={members.find(m => m.uid === formData.paidBy)} /> (Payer): ${(formData.amount - ((formData.splitWith || []).length * (formData.amount / ((formData.splitWith || []).length + 1)))).toFixed(2)}</li>
+                      </ul>
                     </div>
                   )}
                 </div>
               )}
 
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="includeInBudget"
-                  checked={formData.includeInBudget}
-                  onCheckedChange={(checked) => setFormData({ ...formData, includeInBudget: checked })}
-                />
-                <Label htmlFor="includeInBudget">Include in budget calculations</Label>
-              </div>
-              <div className="flex space-x-2">
+              <div className="flex justify-end space-x-2">
+                <Button type="button" variant="outline" onClick={() => {
+                  setShowAddForm(false);
+                  resetForm();
+                }}>
+                  Cancel
+                </Button>
                 <Button type="submit">
                   {editingTransaction ? 'Update Transaction' : 'Add Transaction'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowAddForm(false);
-                    setEditingTransaction(null);
-                    setFormData({
-                      amount: '',
-                      type: 'expense',
-                      description: '',
-                      categoryId: '',
-                      paymentMethod: 'credit card',
-                      notes: '',
-                      includeInBudget: true,
-                      date: new Date().toISOString().split('T')[0]
-                    });
-                  }}
-                >
-                  Cancel
                 </Button>
               </div>
             </form>
@@ -701,63 +737,44 @@ export default function TransactionManagement() {
         </Card>
       )}
 
-      {/* Batch Edit Form */}
+      {/* Batch Edit Modal */}
       {showBatchEdit && (
         <Card>
           <CardHeader>
             <CardTitle>Batch Edit Transactions</CardTitle>
-            <CardDescription>
-              Update {selectedTransactions.length} selected transactions
-            </CardDescription>
+            <CardDescription>Edit {selectedTransactions.length} selected transactions</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <div>
-                <Label htmlFor="batchCategory">Change Category</Label>
-                <Select value={batchEditData.categoryId} onValueChange={(value) => setBatchEditData({ ...batchEditData, categoryId: value })}>
+                <Label htmlFor="batchCategory">Category</Label>
+                <Select
+                  value={batchEditData.categoryId}
+                  onValueChange={(value) => setBatchEditData({ ...batchEditData, categoryId: value })}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select new category (optional)" />
+                    <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((category) => (
                       <SelectItem key={category.id} value={category.id}>
-                        {category.name} ({category.type})
+                        {category.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>Include in Budget</Label>
-                <div className="flex space-x-4 mt-2">
-                  <Button
-                    type="button"
-                    variant={batchEditData.includeInBudget === true ? "default" : "outline"}
-                    onClick={() => setBatchEditData({ ...batchEditData, includeInBudget: true })}
-                  >
-                    Include
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={batchEditData.includeInBudget === false ? "default" : "outline"}
-                    onClick={() => setBatchEditData({ ...batchEditData, includeInBudget: false })}
-                  >
-                    Exclude
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={batchEditData.includeInBudget === null ? "default" : "outline"}
-                    onClick={() => setBatchEditData({ ...batchEditData, includeInBudget: null })}
-                  >
-                    No Change
-                  </Button>
-                </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="batchIncludeInBudget"
+                  checked={batchEditData.includeInBudget === true}
+                  onCheckedChange={(checked) => setBatchEditData({ ...batchEditData, includeInBudget: checked })}
+                />
+                <Label htmlFor="batchIncludeInBudget">Include in Budget</Label>
               </div>
-              <div className="flex space-x-2">
-                <Button onClick={handleBatchEdit}>
-                  Update Transactions
-                </Button>
+              <div className="flex justify-end space-x-2">
                 <Button
+                  type="button"
                   variant="outline"
                   onClick={() => {
                     setShowBatchEdit(false);
@@ -765,6 +782,9 @@ export default function TransactionManagement() {
                   }}
                 >
                   Cancel
+                </Button>
+                <Button onClick={handleBatchEdit}>
+                  Update {selectedTransactions.length} Transactions
                 </Button>
               </div>
             </div>
@@ -775,139 +795,128 @@ export default function TransactionManagement() {
       {/* Transactions List */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Transaction History</CardTitle>
-              <CardDescription>
-                {transactions.length} transactions in {currentLedger.name}
-              </CardDescription>
-            </div>
-            {transactions.length > 0 && (
+          <CardTitle>All Transactions</CardTitle>
+          <CardDescription>Manage your ledger's financial records.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* Batch Controls */}
+            <div className="flex justify-between items-center">
               <Button
                 variant="outline"
                 onClick={selectAllTransactions}
-                className="flex items-center space-x-2"
               >
-                {selectedTransactions.length === transactions.length ? (
-                  <CheckSquare className="h-4 w-4" />
-                ) : (
-                  <Square className="h-4 w-4" />
-                )}
-                <span>Select All</span>
+                {selectedTransactions.length === transactions.length ? 'Deselect All' : 'Select All'}
               </Button>
+              {selectedTransactions.length > 0 && (
+                <div className="flex space-x-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowBatchEdit(true)}
+                    className="flex items-center space-x-2"
+                  >
+                    <Edit className="h-4 w-4" />
+                    <span>Batch Edit ({selectedTransactions.length})</span>
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={handleBatchDelete}
+                  >
+                    Delete Selected ({selectedTransactions.length})
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Transactions with Month Dividers */}
+            {transactions.length === 0 ? (
+              <p>No transactions found. Add one above!</p>
+            ) : (
+              <div className="space-y-4">
+                {(() => {
+                  // Group transactions by month
+                  const groupedTransactions = {};
+                  transactions.forEach(transaction => {
+                    const date = new Date(transaction.date);
+                    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                    if (!groupedTransactions[monthKey]) {
+                      groupedTransactions[monthKey] = [];
+                    }
+                    groupedTransactions[monthKey].push(transaction);
+                  });
+
+                  // Sort month keys in descending order
+                  const sortedMonthKeys = Object.keys(groupedTransactions).sort((a, b) => b.localeCompare(a));
+
+                  return sortedMonthKeys.map(monthKey => {
+                    const monthTransactions = groupedTransactions[monthKey];
+                    const [year, month] = monthKey.split('-');
+                    const monthName = new Date(year, month - 1).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'long' 
+                    });
+
+                    return (
+                      <div key={monthKey}>
+                        {/* Month Divider */}
+                        <div className="flex items-center my-6">
+                          <div className="flex-grow border-t border-gray-300"></div>
+                          <div className="mx-4 px-3 py-1 bg-gray-100 text-gray-600 text-sm font-medium rounded-full">
+                            {monthName}
+                          </div>
+                          <div className="flex-grow border-t border-gray-300"></div>
+                        </div>
+
+                        {/* Transactions for this month */}
+                        <div className="space-y-3">
+                          {monthTransactions.map((transaction) => {
+                            const category = categories.find(cat => cat.id === transaction.categoryId);
+                            const payer = members.find(m => m.uid === transaction.paidBy);
+                            const splitMembers = members.filter(m => (transaction.splitWith || []).includes(m.uid));
+
+                            return (
+                              <div key={transaction.id} className="border p-4 rounded-md shadow-sm flex justify-between items-center">
+                                <div className="flex items-center space-x-3">
+                                  <Checkbox
+                                    checked={selectedTransactions.includes(transaction.id)}
+                                    onCheckedChange={() => toggleTransactionSelection(transaction.id)}
+                                  />
+                                  <div>
+                                    <p className="font-semibold">{transaction.description} - ${transaction.amount.toFixed(2)}</p>
+                                    <p className="text-sm text-gray-500">{category?.name} | {new Date(transaction.date).toLocaleDateString()}</p>
+                                    {transaction.splitType !== 'none' && (
+                                      <p className="text-sm text-gray-500">
+                                        Paid by: <ProfileImageWithName user={payer} />
+                                        {(transaction.splitWith || []).length > 0 && (
+                                          <span>
+                                            , Split with: {splitMembers.map(m => m.displayName || m.email).join(', ')}
+                                          </span>
+                                        )}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex space-x-2">
+                                  <Button variant="outline" size="sm" onClick={() => handleEdit(transaction)}>
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="destructive" size="sm" onClick={() => handleDelete(transaction.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
             )}
           </div>
-        </CardHeader>
-        <CardContent>
-          {transactions.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No transactions found. Add your first transaction to get started.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {transactions.map((transaction) => {
-                const category = categories.find(cat => cat.id === transaction.categoryId);
-                return (
-                  <div
-                    key={transaction.id}
-                    className={`flex items-center justify-between p-4 border rounded-lg ${
-                      selectedTransactions.includes(transaction.id) ? 'bg-blue-50 border-blue-200' : 'bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-4">
-                      <Checkbox
-                        checked={selectedTransactions.includes(transaction.id)}
-                        onCheckedChange={() => toggleTransactionSelection(transaction.id)}
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-2">
-                          <h3 className="font-medium">{transaction.description}</h3>
-                          {category && (
-                            <Badge variant="secondary">{category.name}</Badge>
-                          )}
-                          {!transaction.includeInBudget && (
-                            <Badge variant="outline">Excluded from Budget</Badge>
-                          )}
-                        </div>
-                        <div className="text-sm text-gray-500 flex items-center space-x-4">
-                          <span className="flex items-center space-x-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>{transaction.date.toLocaleDateString()}</span>
-                          </span>
-                          <span className="flex items-center space-x-1">
-                            <Tag className="h-3 w-3" />
-                            <span>{transaction.paymentMethod}</span>
-                          </span>
-                        </div>
-                        {transaction.notes && (
-                          <p className="text-sm text-gray-600 mt-1">{transaction.notes}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                      <div className={`text-lg font-semibold ${
-                        transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
-                      </div>
-                      {canEdit() && (
-                        <div className="flex space-x-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setEditingTransaction(transaction);
-                              const transactionSplitWith = transaction.splitWith || [];
-                              setFormData({
-                                amount: transaction.amount.toString(),
-                                type: transaction.type,
-                                description: transaction.description,
-                                categoryId: transaction.categoryId || '',
-                                paymentMethod: transaction.paymentMethod || 'credit card',
-                                notes: transaction.notes || '',
-                                includeInBudget: transaction.includeInBudget !== false,
-                                date: transaction.date.toISOString().split('T')[0],
-                                // Initialize splitting fields with safe defaults
-                                paidBy: transaction.paidBy || transaction.userId || currentUser?.uid || '',
-                                splitType: transaction.splitType || 'none',
-                                splitWith: transactionSplitWith,
-                                splitAmounts: transaction.splitAmounts || {}
-                              });
-                              
-                              // Initialize split mode based on transaction data
-                              const allOtherMembers = members.filter(m => m.uid !== currentUser?.uid);
-                              const allOtherMemberIds = allOtherMembers.map(m => m.uid);
-                              
-                              if (transactionSplitWith.length === 0) {
-                                setSplitMode('none');
-                              } else if (transactionSplitWith.length === allOtherMemberIds.length && 
-                                         allOtherMemberIds.every(id => transactionSplitWith.includes(id))) {
-                                setSplitMode('everyone');
-                              } else {
-                                setSplitMode('individuals');
-                              }
-                            }}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(transaction.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>
   );
 }
-
