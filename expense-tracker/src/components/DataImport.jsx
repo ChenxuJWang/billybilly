@@ -21,7 +21,9 @@ import {
   getDocs,
   query,
   where,
-  Timestamp
+  Timestamp,
+  writeBatch,
+  doc
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -268,7 +270,7 @@ export default function DataImport() {
     return transactions;
   };
 
-  // Import transactions to Firestore
+  // Import transactions to Firestore using batch writes for better performance
   const importTransactions = async (transactions) => {
     if (!currentLedger || !canEdit()) return;
 
@@ -276,27 +278,40 @@ export default function DataImport() {
     let imported = 0;
     let skipped = 0;
 
-    for (let i = 0; i < transactions.length; i++) {
-      const transaction = transactions[i];
-      
-      try {
-        // Check for duplicates based on date, amount, and description
-        const duplicateQuery = query(
-          transactionsRef,
-          where('date', '==', Timestamp.fromDate(transaction.date)),
-          where('amount', '==', transaction.amount),
-          where('description', '==', transaction.description)
-        );
+    // First, fetch existing transactions to check for duplicates
+    const existingTransactionsQuery = query(transactionsRef);
+    const existingSnapshot = await getDocs(existingTransactionsQuery);
+    const existingTransactions = new Set();
+    
+    existingSnapshot.forEach((doc) => {
+      const data = doc.data();
+      // Create a unique key for duplicate detection
+      const key = `${data.date?.toDate()?.toISOString()}-${data.amount}-${data.description}`;
+      existingTransactions.add(key);
+    });
+
+    // Process transactions in batches of 500 (Firestore batch limit)
+    const BATCH_SIZE = 500;
+    const batches = [];
+    
+    for (let i = 0; i < transactions.length; i += BATCH_SIZE) {
+      const batch = writeBatch(db);
+      const batchTransactions = transactions.slice(i, i + BATCH_SIZE);
+      let batchImported = 0;
+      let batchSkipped = 0;
+
+      for (const transaction of batchTransactions) {
+        // Check for duplicates
+        const duplicateKey = `${transaction.date.toISOString()}-${transaction.amount}-${transaction.description}`;
         
-        const duplicateSnapshot = await getDocs(duplicateQuery);
-        
-        if (!duplicateSnapshot.empty) {
-          skipped++;
+        if (existingTransactions.has(duplicateKey)) {
+          batchSkipped++;
           continue;
         }
 
-        // Add transaction
-        await addDoc(transactionsRef, {
+        // Add to batch
+        const newDocRef = doc(transactionsRef);
+        batch.set(newDocRef, {
           date: Timestamp.fromDate(transaction.date),
           type: transaction.type,
           amount: transaction.amount,
@@ -313,11 +328,31 @@ export default function DataImport() {
           paidBy: currentUser.uid
         });
 
-        imported++;
-        setImportProgress(Math.round(((i + 1) / transactions.length) * 100));
+        batchImported++;
+        // Add to existing set to prevent duplicates within the same import
+        existingTransactions.add(duplicateKey);
+      }
+
+      if (batchImported > 0) {
+        batches.push({ batch, imported: batchImported, skipped: batchSkipped });
+      } else {
+        skipped += batchSkipped;
+      }
+    }
+
+    // Execute all batches
+    for (let i = 0; i < batches.length; i++) {
+      try {
+        await batches[i].batch.commit();
+        imported += batches[i].imported;
+        skipped += batches[i].skipped;
+        
+        // Update progress
+        const progress = Math.round(((i + 1) / batches.length) * 100);
+        setImportProgress(progress);
       } catch (error) {
-        console.error('Error importing transaction:', error);
-        skipped++;
+        console.error('Error committing batch:', error);
+        skipped += batches[i].imported; // Count failed imports as skipped
       }
     }
 

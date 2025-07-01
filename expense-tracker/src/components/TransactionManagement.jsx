@@ -32,7 +32,8 @@ import {
   query,
   orderBy,
   where,
-  Timestamp
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -156,58 +157,65 @@ export default function TransactionManagement() {
     }
   };
 
-  // Fetch members
+  // Fetch members with optimized queries
   const fetchMembers = async () => {
     if (!currentLedger?.members) return;
 
     try {
       const memberList = [];
+      const userIds = Object.keys(currentLedger.members);
       
-      // Get member details from users collection
-      for (const [userId, role] of Object.entries(currentLedger.members)) {
+      // Batch user queries in groups of 10 (Firestore 'in' query limit)
+      const BATCH_SIZE = 10;
+      const userDataMap = new Map();
+      
+      for (let i = 0; i < userIds.length; i += BATCH_SIZE) {
+        const batchUserIds = userIds.slice(i, i + BATCH_SIZE);
+        
         try {
-          const userDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', userId)));
-          let userData = { uid: userId, role };
+          const userQuery = query(
+            collection(db, 'users'),
+            where('__name__', 'in', batchUserIds)
+          );
+          const userSnapshot = await getDocs(userQuery);
           
-          if (!userDoc.empty) {
-            const userInfo = userDoc.docs[0].data();
-            userData = {
-              ...userData,
-              displayName: userInfo.displayName,
-              email: userInfo.email,
-              profileColor: userInfo.profileColor
-            };
-          } else if (userId === currentUser?.uid) {
-            // Use current user data if user document doesn't exist
-            userData = {
-              ...userData,
-              displayName: currentUser.displayName,
-              email: currentUser.email
-            };
-          } else {
-            // Fallback for unknown users
-            userData = {
-              ...userData,
-              displayName: `User ${userId.slice(0, 8)}`,
-              email: `${userId.slice(0, 8)}@example.com`
-            };
-          }
-          
-          memberList.push(userData);
-        } catch (error) {
-          console.error(`Error fetching user ${userId}:`, error);
-          // Add user with minimal info if fetch fails
-          memberList.push({
-            uid: userId,
-            role,
-            displayName: userId === currentUser?.uid ? 
-              (currentUser.displayName || currentUser.email) : 
-              `User ${userId.slice(0, 8)}`,
-            email: userId === currentUser?.uid ? 
-              currentUser.email : 
-              `${userId.slice(0, 8)}@example.com`
+          userSnapshot.forEach((doc) => {
+            userDataMap.set(doc.id, doc.data());
           });
+        } catch (error) {
+          console.error('Error fetching user batch:', error);
         }
+      }
+      
+      // Build member list with fetched data
+      for (const [userId, role] of Object.entries(currentLedger.members)) {
+        let userData = { uid: userId, role };
+        
+        const userInfo = userDataMap.get(userId);
+        if (userInfo) {
+          userData = {
+            ...userData,
+            displayName: userInfo.displayName,
+            email: userInfo.email,
+            profileColor: userInfo.profileColor
+          };
+        } else if (userId === currentUser?.uid) {
+          // Use current user data if user document doesn't exist
+          userData = {
+            ...userData,
+            displayName: currentUser.displayName,
+            email: currentUser.email
+          };
+        } else {
+          // Fallback for unknown users
+          userData = {
+            ...userData,
+            displayName: `User ${userId.slice(0, 8)}`,
+            email: `${userId.slice(0, 8)}@example.com`
+          };
+        }
+        
+        memberList.push(userData);
       }
 
       setMembers(memberList);
@@ -305,7 +313,7 @@ export default function TransactionManagement() {
     }
   };
 
-  // Handle batch deletion
+  // Handle batch deletion with batch writes for better performance
   const handleBatchDelete = async () => {
     if (!canEdit() || selectedTransactions.length === 0) return;
 
@@ -315,8 +323,26 @@ export default function TransactionManagement() {
 
     try {
       setError("");
-      for (const transactionId of selectedTransactions) {
-        await deleteDoc(doc(db, "ledgers", currentLedger.id, "transactions", transactionId));
+      
+      // Process deletions in batches of 500 (Firestore batch limit)
+      const BATCH_SIZE = 500;
+      const batches = [];
+      
+      for (let i = 0; i < selectedTransactions.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const batchTransactionIds = selectedTransactions.slice(i, i + BATCH_SIZE);
+        
+        batchTransactionIds.forEach(transactionId => {
+          const transactionRef = doc(db, "ledgers", currentLedger.id, "transactions", transactionId);
+          batch.delete(transactionRef);
+        });
+        
+        batches.push(batch);
+      }
+      
+      // Execute all batches
+      for (const batch of batches) {
+        await batch.commit();
       }
 
       setSuccess(`Deleted ${selectedTransactions.length} transactions`);
@@ -328,7 +354,7 @@ export default function TransactionManagement() {
     }
   };
 
-  // Handle batch edit
+  // Handle batch edit with batch writes for better performance
   const handleBatchEdit = async () => {
     if (!canEdit() || selectedTransactions.length === 0) return;
 
@@ -338,8 +364,25 @@ export default function TransactionManagement() {
       if (batchEditData.categoryId) updates.categoryId = batchEditData.categoryId;
       if (batchEditData.includeInBudget !== null) updates.includeInBudget = batchEditData.includeInBudget;
 
-      for (const transactionId of selectedTransactions) {
-        await updateDoc(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId), updates);
+      // Process updates in batches of 500 (Firestore batch limit)
+      const BATCH_SIZE = 500;
+      const batches = [];
+      
+      for (let i = 0; i < selectedTransactions.length; i += BATCH_SIZE) {
+        const batch = writeBatch(db);
+        const batchTransactionIds = selectedTransactions.slice(i, i + BATCH_SIZE);
+        
+        batchTransactionIds.forEach(transactionId => {
+          const transactionRef = doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId);
+          batch.update(transactionRef, updates);
+        });
+        
+        batches.push(batch);
+      }
+      
+      // Execute all batches
+      for (const batch of batches) {
+        await batch.commit();
       }
 
       setSuccess(`Updated ${selectedTransactions.length} transactions`);
