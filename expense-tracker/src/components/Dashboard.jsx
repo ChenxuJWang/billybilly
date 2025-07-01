@@ -23,7 +23,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
 import { useTransactionUpdates } from '../hooks/useTransactionUpdates';
 import InvitationManager from './InvitationManager';
-import ProfileImage from './ProfileImage';
+import ProfileImage, { ProfileImageGroup } from './ProfileImage';
+import { formatCurrency } from '../utils/currency';
 
 export default function Dashboard() {
   const { currentUser } = useAuth();
@@ -158,11 +159,8 @@ export default function Dashboard() {
     calculateDashboardStats();
   }, [currentLedger, lastTransactionUpdate]);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('zh-CN', {
-      style: 'currency',
-      currency: 'CNY'
-    }).format(amount);
+  const formatCurrencyAmount = (amount) => {
+    return formatCurrency(amount, currentLedger?.currency);
   };
 
   const formatDate = (date) => {
@@ -254,7 +252,7 @@ export default function Dashboard() {
             <div className={`text-2xl font-bold ${
               dashboardData.totalBalance >= 0 ? 'text-green-600' : 'text-red-600'
             }`}>
-              {formatCurrency(dashboardData.totalBalance)}
+              {formatCurrencyAmount(dashboardData.totalBalance)}
             </div>
             <p className="text-xs text-muted-foreground">
               All time balance
@@ -269,7 +267,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {formatCurrency(dashboardData.monthlySpending)}
+              {formatCurrencyAmount(dashboardData.monthlySpending)}
             </div>
             <p className="text-xs text-muted-foreground mb-3">
               This month's expenses
@@ -289,10 +287,10 @@ export default function Dashboard() {
                     </div>
                     <div className="flex space-x-3 text-right">
                       <span className="text-green-600">
-                        +{formatCurrency(member.stats.monthlyIncome)}
+                        +{formatCurrencyAmount(member.stats.monthlyIncome)}
                       </span>
                       <span className="text-red-600">
-                        -{formatCurrency(member.stats.monthlySpending)}
+                        -{formatCurrencyAmount(member.stats.monthlySpending)}
                       </span>
                     </div>
                   </div>
@@ -311,7 +309,7 @@ export default function Dashboard() {
             <div className={`text-2xl font-bold ${
               dashboardData.budgetRemaining >= 0 ? 'text-green-600' : 'text-red-600'
             }`}>
-              {formatCurrency(dashboardData.budgetRemaining)}
+              {formatCurrencyAmount(dashboardData.budgetRemaining)}
             </div>
             <p className="text-xs text-muted-foreground">
               {dashboardData.budgetRemaining >= 0 ? 'Remaining this month' : 'Over budget'}
@@ -356,7 +354,7 @@ export default function Dashboard() {
                   <div className={`font-semibold ${
                     transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
                   }`}>
-                    {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                    {transaction.type === 'income' ? '+' : '-'}{formatCurrencyAmount(transaction.amount)}
                   </div>
                 </div>
               ))}

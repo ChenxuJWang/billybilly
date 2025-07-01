@@ -39,6 +39,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
 import ProfileImage, { ProfileImageWithName } from './ProfileImage';
+import { formatCurrency, formatCurrencyWithSign } from '../utils/currency';
 
 export default function TransactionManagement() {
   const { currentUser } = useAuth();
@@ -62,7 +63,7 @@ export default function TransactionManagement() {
     type: 'expense',
     description: '',
     categoryId: '',
-    paymentMethod: 'credit card',
+    paymentMethod: 'cash',
     notes: '',
     includeInBudget: true,
     date: new Date().toISOString().split('T')[0],
@@ -89,7 +90,7 @@ export default function TransactionManagement() {
       type: 'expense',
       description: '',
       categoryId: '',
-      paymentMethod: 'credit card',
+      paymentMethod: 'cash',
       notes: '',
       includeInBudget: true,
       date: new Date().toISOString().split('T')[0],
@@ -628,11 +629,13 @@ export default function TransactionManagement() {
                       <SelectValue placeholder="Select a category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
+                      {categories
+                        .filter(category => category.type === formData.type)
+                        .map((category) => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -746,18 +749,18 @@ export default function TransactionManagement() {
                   {(formData.splitType === 'equal' && (formData.splitWith || []).length > 0) && (
                     <div className="border-t pt-4 mt-4">
                       <h4 className="font-semibold">Split Details:</h4>
-                      <p>Total Amount: ${formData.amount || 0}</p>
+                      <p>Total Amount: {formatCurrency(formData.amount || 0, currentLedger?.currency)}</p>
                       <p>Paid By: <ProfileImageWithName user={members.find(m => m.uid === formData.paidBy)} /></p>
                       <p>Splitting with {(formData.splitWith || []).length} other(s):</p>
                       <ul>
-                        {(formData.splitWith || []).map(memberId => {
+                                        {(formData.splitWith || []).map(memberId => {
                           const member = members.find(m => m.uid === memberId);
-                          const perPersonAmount = (formData.amount / ((formData.splitWith || []).length + 1)).toFixed(2);
-                          return member ? (
-                            <li key={member.uid}>- <ProfileImageWithName user={member} />: ${perPersonAmount}</li>
-                          ) : null;
+                          const perPersonAmount = formatCurrency(formData.amount / ((formData.splitWith || []).length + 1), currentLedger?.currency);
+                          return (
+                            <li key={memberId}>- <ProfileImageWithName user={member} />: {perPersonAmount}</li>
+                          );
                         })}
-                        <li>- <ProfileImageWithName user={members.find(m => m.uid === formData.paidBy)} /> (Payer): ${(formData.amount - ((formData.splitWith || []).length * (formData.amount / ((formData.splitWith || []).length + 1)))).toFixed(2)}</li>
+                        <li>- <ProfileImageWithName user={members.find(m => m.uid === formData.paidBy)} /> (Payer): {formatCurrency(formData.amount - ((formData.splitWith || []).length * (formData.amount / ((formData.splitWith || []).length + 1))), currentLedger?.currency)}</li>
                       </ul>
                     </div>
                   )}
@@ -919,27 +922,44 @@ export default function TransactionManagement() {
 
                             return (
                               <div key={transaction.id} className="border p-4 rounded-md shadow-sm flex justify-between items-center">
-                                <div className="flex items-center space-x-3">
+                                <div className="flex items-center space-x-3 flex-1">
                                   <Checkbox
                                     checked={selectedTransactions.includes(transaction.id)}
                                     onCheckedChange={() => toggleTransactionSelection(transaction.id)}
                                   />
-                                  <div>
-                                    <p className="font-semibold">{transaction.description} - ${transaction.amount.toFixed(2)}</p>
-                                    <p className="text-sm text-gray-500">{category?.name} | {new Date(transaction.date).toLocaleDateString()}</p>
-                                    {transaction.splitType !== 'none' && (
-                                      <p className="text-sm text-gray-500">
-                                        Paid by: <ProfileImageWithName user={payer} />
-                                        {(transaction.splitWith || []).length > 0 && (
-                                          <span>
-                                            , Split with: {splitMembers.map(m => m.displayName || m.email).join(', ')}
-                                          </span>
+                                  <div className="flex-1">
+                                    <div className="flex justify-between items-start">
+                                      <div>
+                                        <p className={`font-semibold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                                          {transaction.description}
+                                        </p>
+                                        <p className="text-sm text-gray-500">{category?.name} | {new Date(transaction.date).toLocaleDateString()}</p>
+                                        {/* Show paid by/paid to information */}
+                                        {transaction.type === 'expense' && transaction.splitType !== 'none' && (
+                                          <p className="text-sm text-gray-500">
+                                            Paid by: <ProfileImageWithName user={payer} />
+                                            {(transaction.splitWith || []).length > 0 && (
+                                              <span>
+                                                , Split with: {splitMembers.map(m => m.displayName || m.email).join(', ')}
+                                              </span>
+                                            )}
+                                          </p>
                                         )}
-                                      </p>
-                                    )}
+                                        {transaction.type === 'income' && (
+                                          <p className="text-sm text-gray-500">
+                                            Paid to: <ProfileImageWithName user={payer} />
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div className="text-right">
+                                        <p className={`font-semibold text-lg ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                                          {formatCurrencyWithSign(transaction.amount, currentLedger?.currency, transaction.type === 'income')}
+                                        </p>
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
-                                <div className="flex space-x-2">
+                                <div className="flex space-x-2 ml-4">
                                   <Button variant="outline" size="sm" onClick={() => handleEdit(transaction)}>
                                     <Edit className="h-4 w-4" />
                                   </Button>
