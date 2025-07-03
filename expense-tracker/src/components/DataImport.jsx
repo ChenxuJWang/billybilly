@@ -59,7 +59,7 @@ const IMPORT_PLATFORMS = [
   }
 ];
 
-export default function DataImport() {
+export default function DataImport({ debugModeEnabled }) {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
   const [selectedPlatform, setSelectedPlatform] = useState('');
@@ -98,32 +98,7 @@ export default function DataImport() {
           const expenseCategories = categories.filter(cat => cat.type === 'expense');
           const incomeCategories = categories.filter(cat => cat.type === 'income');
           
-          const prompt = `You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:
-
-1. For each row, determine whether it is an **expense** or an **income**.   
-
-2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):
-
-   **Expense Categories**  
-   ${expenseCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT: (Hard To Tell) if you can't unambiguously assign one of the above"}
-
-   **Income Categories**  
-   ${incomeCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT"}
-
-   Use merchant names, keywords in the description, or amount signs to guide your choice.  
-
-3. Output a single JSON object with this exact structure:
-
-{
-  "transactions": [
-    {
-      "id": "<self-increment id>",
-      "category": "<one of the given categories: ${[...expenseCategories, ...incomeCategories].map(cat => cat.name).join(", ")}, HTT>"
-    }
-  ]
-}
-
-4.  Optionally, "corrections" showing prior mis-classifications I've corrected may be provided to guide this categorization `;
+          const prompt = `You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${expenseCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT: (Hard To Tell) if you can't unambiguously assign one of the above"}\n\n   **Income Categories**  \n   ${incomeCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT"}\n\n   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n\n3. Output a single JSON object with this exact structure:\n\n{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: ${[...expenseCategories, ...incomeCategories].map(cat => cat.name).join(", ")}, HTT>"\n    }\n  ]\n}\n\n4.  Optionally, "corrections" showing prior mis-classifications I've corrected may be provided to guide this categorization `;
           
           setSystemPrompt(prompt);
         }
@@ -157,10 +132,11 @@ export default function DataImport() {
 
   // Parse Alipay CSV
   const parseAlipayCSV = (csvText) => {
-    const lines = csvText.split("\\n");
+    const lines = csvText.split("\n");
     let dataStartIndex = -1;
     
     // Find the header line - be more flexible with header detection
+    // Look for a line containing "交易时间" and "交易分类" or "收/支"
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.includes("交易时间") && (line.includes("交易分类") || line.includes("收/支"))) {
@@ -169,19 +145,21 @@ export default function DataImport() {
       }
     }
     
+    // If header not found by keywords, try to find the first line that looks like a transaction
     if (dataStartIndex === -1) {
-      // Try alternative approach - look for lines with transaction data pattern
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (line.match(/^\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}/)) {
+        // Check for a typical date-time pattern at the beginning of the line
+        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/)) {
           dataStartIndex = i;
           break;
         }
       }
     }
-    
+
+    // If still not found, assume data starts after 23 lines as a last resort (based on llm-cat context)
     if (dataStartIndex === -1) {
-      throw new Error("Invalid Alipay CSV format: No transaction data found. Please ensure the file contains transaction records.");
+      dataStartIndex = 23; 
     }
 
     const transactions = [];
@@ -190,7 +168,7 @@ export default function DataImport() {
       if (!line) continue;
       
       // More robust CSV parsing - handle quoted fields
-      const fields = line.split(",").map(field => field.replace(/^"|"$/g, "").trim());
+      const fields = line.split(',').map(field => field.replace(/^"|"$/g, '').trim());
       if (fields.length < 6) continue;
 
       // Handle different CSV formats
@@ -211,7 +189,7 @@ export default function DataImport() {
       if (!type || (type !== "支出" && type !== "收入")) continue;
       
       // Parse amount - handle different formats
-      const amountStr = amount.toString().replace(/[^\\d.-]/g, "");
+      const amountStr = amount.toString().replace(/[^\d.-]/g, "");
       const parsedAmount = parseFloat(amountStr);
       if (isNaN(parsedAmount)) continue;
 
@@ -250,10 +228,11 @@ export default function DataImport() {
 
   // Parse WeChat Pay CSV
   const parseWeChatCSV = (csvText) => {
-    const lines = csvText.split("\\n");
+    const lines = csvText.split("\n");
     let dataStartIndex = -1;
 
     // Find the header line - be more flexible with header detection
+    // Look for a line containing "交易时间" and "交易类型" or "收/支"
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.includes("交易时间") && (line.includes("交易类型") || line.includes("收/支"))) {
@@ -262,19 +241,21 @@ export default function DataImport() {
       }
     }
 
+    // If header not found by keywords, try to find the first line that looks like a transaction
     if (dataStartIndex === -1) {
-      // Try alternative approach - look for lines with transaction data pattern
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (line.match(/^\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}/)) {
+        // Check for a typical date-time pattern at the beginning of the line
+        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/)) {
           dataStartIndex = i;
           break;
         }
       }
     }
 
+    // If still not found, assume data starts after 15 lines as a last resort (based on llm-cat context)
     if (dataStartIndex === -1) {
-      throw new Error("Invalid WeChat Pay CSV format: No transaction data found. Please ensure the file contains transaction records.");
+      dataStartIndex = 15;
     }
 
     const transactions = [];
@@ -283,7 +264,7 @@ export default function DataImport() {
       if (!line) continue;
 
       // More robust CSV parsing - handle quoted fields
-      const fields = line.split(",").map(field => field.replace(/^"|"$/g, "").trim());
+      const fields = line.split(',').map(field => field.replace(/^"|"$/g, '').trim());
       if (fields.length < 6) continue;
 
       // Handle different CSV formats
@@ -303,7 +284,7 @@ export default function DataImport() {
       if (!type || (type !== "支出" && type !== "收入")) continue;
       
       // Parse amount - handle different formats (remove ¥ symbol and other characters)
-      const cleanAmountStr = amountStr.toString().replace(/[¥￥,\\s]/g, "").replace(/[^\\d.-]/g, "");
+      const cleanAmountStr = amountStr.toString().replace(/[¥￥,\s]/g, "").replace(/[^\d.-]/g, "");
       const parsedAmount = parseFloat(cleanAmountStr);
       if (isNaN(parsedAmount)) continue;
       
@@ -671,7 +652,7 @@ export default function DataImport() {
         )}
         
         {/* Show streaming content when LLM is processing */}
-        {llmProcessing && streamingContent && (
+        {llmProcessing && debugModeEnabled && streamingContent && (
           <Card>
             <CardHeader>
               <CardTitle>AI Response Stream</CardTitle>

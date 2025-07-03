@@ -3,12 +3,12 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } f
 import { Button } from '@/components/ui/button.jsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
 import { Badge } from '@/components/ui/badge.jsx'
-import { 
-  Home, 
-  CreditCard, 
-  PieChart, 
-  Users, 
-  Upload, 
+import {
+  Home,
+  CreditCard,
+  PieChart,
+  Users,
+  Upload,
   Cog,
   Menu,
   X,
@@ -195,12 +195,11 @@ function ExpenseSplits() {
   )
 }
 
-function Import() {
-  return <DataImport />
+function Import({ debugModeEnabled }) {
+  return <DataImport debugModeEnabled={debugModeEnabled} />
 }
 
-function AppSettings() {
-  const [smartCategorizationEnabled, setSmartCategorizationEnabled] = useState(false);
+function AppSettings({ smartCategorizationEnabled, setSmartCategorizationEnabled, debugModeEnabled, setDebugModeEnabled }) {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
@@ -212,6 +211,8 @@ function AppSettings() {
       <SmartCategorizationSettings
         smartCategorizationEnabled={smartCategorizationEnabled}
         setSmartCategorizationEnabled={setSmartCategorizationEnabled}
+        debugModeEnabled={debugModeEnabled}
+        setDebugModeEnabled={setDebugModeEnabled}
       />
       
       {/* Additional Settings Placeholder */}
@@ -232,6 +233,8 @@ function AppSettings() {
 function AppContent() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const { currentUser } = useAuth()
+  const [debugModeEnabled, setDebugModeEnabled] = useState(false); // State for debug mode, passed to Import
+  const [smartCategorizationEnabled, setSmartCategorizationEnabled] = useState(false); // State for smart categorization, passed to AppSettings
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -278,12 +281,17 @@ function AppContent() {
           } />
           <Route path="/import" element={
             <ProtectedRoute>
-              <Import />
+              <Import debugModeEnabled={debugModeEnabled} />
             </ProtectedRoute>
           } />
           <Route path="/settings" element={
             <ProtectedRoute>
-              <AppSettings />
+              <AppSettings 
+                smartCategorizationEnabled={smartCategorizationEnabled}
+                setSmartCategorizationEnabled={setSmartCategorizationEnabled}
+                debugModeEnabled={debugModeEnabled}
+                setDebugModeEnabled={setDebugModeEnabled}
+              />
             </ProtectedRoute>
           } />
         </Routes>
@@ -305,4 +313,5 @@ function App() {
 }
 
 export default App
+
 

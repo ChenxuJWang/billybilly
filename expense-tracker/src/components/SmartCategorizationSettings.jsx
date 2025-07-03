@@ -15,6 +15,8 @@ import { CheckCircle, AlertCircle } from "lucide-react";
 function SmartCategorizationSettings({
   smartCategorizationEnabled,
   setSmartCategorizationEnabled,
+  debugModeEnabled, // New prop for debug mode
+  setDebugModeEnabled // New prop for debug mode
 }) {
   const { currentUser } = useAuth();
   const { currentLedger } = useLedger();
@@ -22,7 +24,13 @@ function SmartCategorizationSettings({
   const [apiKeyConfirmed, setApiKeyConfirmed] = useState(false);
   const [apiKeyError, setApiKeyError] = useState("");
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
-  const [systemPrompt, setSystemPrompt] = useState(`You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${currentLedger?.expenseCategories?.map(cat => `- ${cat.name}`).join("\n") || "- HTT: (Hard To Tell) if you can\"t unambiguously assign one of the above"}\n\n   **Income Categories**  \n   ${currentLedger?.incomeCategories?.map(cat => `- ${cat.name}`).join("\n") || "- HTT"}\n\n   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n\n3. Output a single JSON object with this exact structure:\n\n\`\`\`json\n{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: Bills & Utilities, …, Refund, HTT>"\n    }\n  ]\n}\n\n4.  Optionally, "corrections" showing prior mis-classifications I\"ve corrected may be provided to guide this categorization `);
+  const [systemPrompt, setSystemPrompt] = useState(`You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${currentLedger?.expenseCategories?.map(cat => `- ${cat.name}`).join("\\n") || "- HTT: (Hard To Tell) if you can\\\"t unambiguously assign one of the above"}\n
+   **Income Categories**  \n   ${currentLedger?.incomeCategories?.map(cat => `- ${cat.name}`).join("\\n") || "- HTT"}\n
+   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n
+3. Output a single JSON object with this exact structure:\n
+\
+{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: Bills & Utilities, \u2026, Refund, HTT>"\n    }\n  ]\n}\n
+4.  Optionally, "corrections" showing prior mis-classifications I\\\"ve corrected may be provided to guide this categorization `);
   const [systemPromptConfirmed, setSystemPromptConfirmed] = useState(false);
   const [systemPromptError, setSystemPromptError] = useState("");
   const [systemPromptLoading, setSystemPromptLoading] = useState(false);
@@ -164,6 +172,15 @@ function SmartCategorizationSettings({
 
         {smartCategorizationEnabled && (
           <div className="space-y-4">
+            <div className="flex items-center justify-between space-x-2 mb-4">
+              <Label htmlFor="debug-mode">Enable Debug Mode (Session Only)</Label>
+              <Switch
+                id="debug-mode"
+                checked={debugModeEnabled}
+                onCheckedChange={setDebugModeEnabled}
+              />
+            </div>
+
             <div className="space-y-4 mb-4">
               <Label htmlFor="api-key">Doubao API Key</Label>
               <div className="flex items-center space-x-2">
@@ -193,26 +210,28 @@ function SmartCategorizationSettings({
               )}
             </div>
 
-            <div className="space-y-4">
-              <Label htmlFor="system-prompt">System Prompt</Label>
-              <Textarea
-                id="system-prompt"
-                placeholder="Enter the system prompt for LLM categorization"
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                rows={10}
-                disabled={systemPromptConfirmed}
-              />
-              <Button onClick={handleSystemPromptConfirm} disabled={systemPromptConfirmed}>
-                {systemPromptConfirmed ? <CheckCircle className="h-4 w-4" /> : "Confirm Prompt"}
-              </Button>
-              {systemPromptError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{systemPromptError}</AlertDescription>
-                </Alert>
-              )}
-            </div>
+            {debugModeEnabled && (
+              <div className="space-y-4">
+                <Label htmlFor="system-prompt">System Prompt</Label>
+                <Textarea
+                  id="system-prompt"
+                  placeholder="Enter the system prompt for LLM categorization"
+                  value={systemPrompt}
+                  onChange={(e) => setSystemPrompt(e.target.value)}
+                  rows={10}
+                  disabled={systemPromptConfirmed}
+                />
+                <Button onClick={handleSystemPromptConfirm} disabled={systemPromptConfirmed}>
+                  {systemPromptConfirmed ? <CheckCircle className="h-4 w-4" /> : "Confirm Prompt"}
+                </Button>
+                {systemPromptError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{systemPromptError}</AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -221,4 +240,5 @@ function SmartCategorizationSettings({
 }
 
 export default SmartCategorizationSettings;
+
 
