@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
@@ -13,7 +13,8 @@ import {
   AlertCircle,
   Smartphone,
   CreditCard,
-  Bot
+  Bot,
+  XCircle
 } from 'lucide-react';
 import {
   collection,
@@ -23,7 +24,8 @@ import {
   where,
   Timestamp,
   writeBatch,
-  doc
+  doc,
+  getDoc
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -67,6 +69,43 @@ export default function DataImport() {
   const [categories, setCategories] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // Smart categorization state
+  const [smartCategorizationEnabled, setSmartCategorizationEnabled] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [parsedTransactions, setParsedTransactions] = useState([]);
+  const [displayedTransactions, setDisplayedTransactions] = useState([]);
+  const [llmProcessing, setLlmProcessing] = useState(false);
+  const abortControllerRef = useRef(null); // For canceling LLM process
+
+  // Load smart categorization settings
+  const loadSmartCategorizationSettings = async () => {
+    if (!currentUser) return;
+
+    try {
+      const userDocRef = doc(db, "users", currentUser.uid);
+      const userDocSnap = await getDoc(userDocRef);
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        setSmartCategorizationEnabled(userData.smartCategorizationEnabled || false);
+        setApiKey(userData.llmApiKey || '');
+        
+        // Generate system prompt with current ledger categories
+        if (currentLedger && categories.length > 0) {
+          const expenseCategories = categories.filter(cat => cat.type === 'expense');
+          const incomeCategories = categories.filter(cat => cat.type === 'income');
+          
+          const prompt = `You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${expenseCategories.map(cat => `- ${cat.name}`).join('\n') || '- HTT: (Hard To Tell) if you can\\'t unambiguously assign one of the above'}\n\n   **Income Categories**  \n   ${incomeCategories.map(cat => `- ${cat.name}`).join('\n') || '- HTT'}\n\n   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n
+3. Output a single JSON object with this exact structure:\n\n\`\`\`json\n{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: ${[...expenseCategories, ...incomeCategories].map(cat => cat.name).join(', ')}, HTT>"\n    }\n  ]\n}\n\n4.  Optionally, "corrections" showing prior mis-classifications I\\'ve corrected may be provided to guide this categorization `;
+          
+          setSystemPrompt(prompt);
+        }
+      }
+    } catch (error) {
+      console.error("Error loading smart categorization settings:", error);
+    }
+  };
 
   // Fetch categories for mapping
   const fetchCategories = async () => {
@@ -160,11 +199,13 @@ export default function DataImport() {
       const notes = counterparty ? `Counterparty: ${counterparty}` : '';
       
       transactions.push({
+        id: i - dataStartIndex + 1, // Self-incrementing ID starting from 1
         date: new Date(dateTime),
         type: type === "支出" ? "expense" : "income",
         amount: Math.abs(parsedAmount),
         description: description || "Unknown Transaction",
         notes: notes,
+        counterparty: counterparty || '', // Add counterparty
         categoryId: mappedCategory ? mappedCategory.id : null,
         categoryName: mappedCategory ? mappedCategory.name : category,
         paymentMethod: paymentMethod || "Unknown",
@@ -250,11 +291,13 @@ export default function DataImport() {
       const notes = counterparty ? `Counterparty: ${counterparty}` : '';
       
       transactions.push({
+        id: i - dataStartIndex + 1, // Self-incrementing ID starting from 1
         date: new Date(dateTime),
         type: type === "支出" ? "expense" : "income",
         amount: Math.abs(parsedAmount),
         description: product || "Unknown Transaction",
         notes: notes,
+        counterparty: counterparty || '', // Add counterparty
         categoryId: mappedCategory ? mappedCategory.id : null,
         categoryName: mappedCategory ? mappedCategory.name : transactionType,
         paymentMethod: paymentMethod || "Unknown",
@@ -370,6 +413,7 @@ export default function DataImport() {
     setImportResults(null);
     setError("");
     setSuccess("");
+    abortControllerRef.current = new AbortController(); // Initialize AbortController
 
     try {
       let parsedTransactions = [];
@@ -392,19 +436,55 @@ export default function DataImport() {
         throw new Error("No valid transactions found in the file.");
       }
 
-      await importTransactions(parsedTransactions);
-      setSuccess(`Successfully imported ${importResults?.imported || 0} transactions!`);
+      // Store parsed transactions for potential LLM processing
+      setParsedTransactions(parsedTransactions);
+      
+      // Display transactions immediately
+      setDisplayedTransactions(parsedTransactions.map(t => ({
+        ...t,
+        llmCategory: null,
+        llmProcessing: false
+      })));
+
+      // Check if smart categorization is enabled and API key is available
+      if (smartCategorizationEnabled && apiKey && (selectedPlatform === 'alipay' || selectedPlatform === 'wechat')) {
+        setLlmProcessing(true);
+        // TODO: Trigger LLM categorization process
+        console.log('Smart categorization enabled, will process with LLM');
+      } else {
+        // Proceed with normal import
+        await importTransactions(parsedTransactions);
+        setSuccess(`Successfully imported ${importResults?.imported || 0} transactions!`);
+      }
     } catch (err) {
       console.error("Import error:", err);
       setError(`Import error: ${err.message}`);
     } finally {
+      if (!smartCategorizationEnabled || !apiKey) {
+        setImporting(false);
+      }
+    }
+  };
+
+  const handleCancelLlmProcessing = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort(); // Signal to cancel the ongoing fetch/LLM process
+      console.log('LLM processing cancelled.');
+      setLlmProcessing(false);
       setImporting(false);
+      setError('LLM categorization cancelled by user.');
     }
   };
 
   useEffect(() => {
     fetchCategories();
   }, [currentLedger]);
+
+  useEffect(() => {
+    if (categories.length > 0) {
+      loadSmartCategorizationSettings();
+    }
+  }, [currentUser, currentLedger, categories]);
 
   useEffect(() => {
     if (success || error) {
@@ -427,9 +507,61 @@ export default function DataImport() {
   if (importing) {
     return (
       <div className="p-6 space-y-4">
-        <h1 className="text-3xl font-bold text-gray-900">Importing Transactions...</h1>
-        <Progress value={importProgress} className="w-full" />
-        <p className="text-center text-gray-600">{importProgress}% Complete</p>
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-gray-900">
+            {llmProcessing ? 'Processing with Smart Categorization...' : 'Importing Transactions...'}
+          </h1>
+          {llmProcessing && (
+            <Button variant="outline" onClick={handleCancelLlmProcessing} className="flex items-center space-x-2">
+              <XCircle className="h-4 w-4" />
+              <span>Cancel</span>
+            </Button>
+          )}
+        </div>
+        
+        {/* Display transactions immediately */}
+        {displayedTransactions.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Imported Transactions</CardTitle>
+              <CardDescription>
+                {llmProcessing ? 'AI is categorizing transactions...' : 'Processing transactions...'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {displayedTransactions.map((transaction, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 border rounded">
+                    <div className="flex-1">
+                      <div className="font-medium">{transaction.description}</div>
+                      <div className="text-sm text-gray-500">
+                        {transaction.date.toLocaleString()} • {transaction.amount} CNY
+                        {transaction.counterparty && ` • ${transaction.counterparty}`}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <Badge variant={transaction.type === 'expense' ? 'destructive' : 'default'}>
+                        {transaction.type}
+                      </Badge>
+                      {llmProcessing && (
+                        <div className="text-sm text-gray-500 mt-1">
+                          {transaction.llmCategory || 'Processing...'}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        {!llmProcessing && (
+          <>
+            <Progress value={importProgress} className="w-full" />
+            <p className="text-center text-gray-600">{importProgress}% Complete</p>
+          </>
+        )}
       </div>
     );
   }
@@ -465,6 +597,16 @@ export default function DataImport() {
         <Alert>
           <CheckCircle className="h-4 w-4" />
           <AlertDescription>{success}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Smart Categorization Status */}
+      {smartCategorizationEnabled && (
+        <Alert>
+          <Bot className="h-4 w-4" />
+          <AlertDescription>
+            Smart Categorization is enabled. Transactions will be automatically categorized using AI.
+          </AlertDescription>
         </Alert>
       )}
 
