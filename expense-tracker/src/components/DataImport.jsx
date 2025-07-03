@@ -30,6 +30,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { callLLMCategorization } from '../utils/llmCategorization';
 
 const IMPORT_PLATFORMS = [
   {
@@ -77,6 +78,7 @@ export default function DataImport() {
   const [parsedTransactions, setParsedTransactions] = useState([]);
   const [displayedTransactions, setDisplayedTransactions] = useState([]);
   const [llmProcessing, setLlmProcessing] = useState(false);
+  const [streamingContent, setStreamingContent] = useState('');
   const abortControllerRef = useRef(null); // For canceling LLM process
 
   // Load smart categorization settings
@@ -96,8 +98,32 @@ export default function DataImport() {
           const expenseCategories = categories.filter(cat => cat.type === 'expense');
           const incomeCategories = categories.filter(cat => cat.type === 'income');
           
-          const prompt = `You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${expenseCategories.map(cat => `- ${cat.name}`).join('\n') || '- HTT: (Hard To Tell) if you can\\'t unambiguously assign one of the above'}\n\n   **Income Categories**  \n   ${incomeCategories.map(cat => `- ${cat.name}`).join('\n') || '- HTT'}\n\n   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n
-3. Output a single JSON object with this exact structure:\n\n\`\`\`json\n{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: ${[...expenseCategories, ...incomeCategories].map(cat => cat.name).join(', ')}, HTT>"\n    }\n  ]\n}\n\n4.  Optionally, "corrections" showing prior mis-classifications I\\'ve corrected may be provided to guide this categorization `;
+          const prompt = `You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:
+
+1. For each row, determine whether it is an **expense** or an **income**.   
+
+2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):
+
+   **Expense Categories**  
+   ${expenseCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT: (Hard To Tell) if you can't unambiguously assign one of the above"}
+
+   **Income Categories**  
+   ${incomeCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT"}
+
+   Use merchant names, keywords in the description, or amount signs to guide your choice.  
+
+3. Output a single JSON object with this exact structure:
+
+{
+  "transactions": [
+    {
+      "id": "<self-increment id>",
+      "category": "<one of the given categories: ${[...expenseCategories, ...incomeCategories].map(cat => cat.name).join(", ")}, HTT>"
+    }
+  ]
+}
+
+4.  Optionally, "corrections" showing prior mis-classifications I've corrected may be provided to guide this categorization `;
           
           setSystemPrompt(prompt);
         }
@@ -131,7 +157,7 @@ export default function DataImport() {
 
   // Parse Alipay CSV
   const parseAlipayCSV = (csvText) => {
-    const lines = csvText.split("\n");
+    const lines = csvText.split("\\n");
     let dataStartIndex = -1;
     
     // Find the header line - be more flexible with header detection
@@ -147,7 +173,7 @@ export default function DataImport() {
       // Try alternative approach - look for lines with transaction data pattern
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/)) {
+        if (line.match(/^\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}/)) {
           dataStartIndex = i;
           break;
         }
@@ -185,7 +211,7 @@ export default function DataImport() {
       if (!type || (type !== "支出" && type !== "收入")) continue;
       
       // Parse amount - handle different formats
-      const amountStr = amount.toString().replace(/[^\d.-]/g, "");
+      const amountStr = amount.toString().replace(/[^\\d.-]/g, "");
       const parsedAmount = parseFloat(amountStr);
       if (isNaN(parsedAmount)) continue;
 
@@ -224,7 +250,7 @@ export default function DataImport() {
 
   // Parse WeChat Pay CSV
   const parseWeChatCSV = (csvText) => {
-    const lines = csvText.split("\n");
+    const lines = csvText.split("\\n");
     let dataStartIndex = -1;
 
     // Find the header line - be more flexible with header detection
@@ -240,7 +266,7 @@ export default function DataImport() {
       // Try alternative approach - look for lines with transaction data pattern
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (line.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/)) {
+        if (line.match(/^\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2}/)) {
           dataStartIndex = i;
           break;
         }
@@ -277,7 +303,7 @@ export default function DataImport() {
       if (!type || (type !== "支出" && type !== "收入")) continue;
       
       // Parse amount - handle different formats (remove ¥ symbol and other characters)
-      const cleanAmountStr = amountStr.toString().replace(/[¥￥,\s]/g, "").replace(/[^\d.-]/g, "");
+      const cleanAmountStr = amountStr.toString().replace(/[¥￥,\\s]/g, "").replace(/[^\\d.-]/g, "");
       const parsedAmount = parseFloat(cleanAmountStr);
       if (isNaN(parsedAmount)) continue;
       
@@ -311,6 +337,95 @@ export default function DataImport() {
     }
 
     return transactions;
+  };
+
+  // Update partial results in real-time
+  const updatePartialResults = (validatedData) => {
+    setDisplayedTransactions(prevTransactions => 
+      prevTransactions.map((transaction) => {
+        const apiResult = validatedData.transactions.find(t => 
+          parseInt(t.id) === transaction.id
+        );
+        
+        if (apiResult) {
+          const category = apiResult.category || 'HTT';
+          return {
+            ...transaction,
+            llmCategory: category,
+            llmProcessing: false
+          };
+        }
+        
+        return transaction;
+      })
+    );
+  };
+
+  // Process LLM categorization
+  const processLLMCategorization = async (transactions) => {
+    try {
+      setStreamingContent('');
+      
+      const onStreamUpdate = (content) => {
+        setStreamingContent(content);
+      };
+
+      const onPartialResults = (data) => {
+        updatePartialResults(data);
+      };
+
+      const finalResults = await callLLMCategorization(
+        transactions,
+        systemPrompt,
+        apiKey,
+        onStreamUpdate,
+        onPartialResults,
+        abortControllerRef.current?.signal
+      );
+
+      // Update final results
+      updatePartialResults(finalResults);
+
+      // Update transactions with LLM categories and proceed with import
+      const transactionsWithLLMCategories = transactions.map((transaction) => {
+        const apiResult = finalResults.transactions.find(t => 
+          parseInt(t.id) === transaction.id
+        );
+        
+        if (apiResult) {
+          const llmCategoryName = apiResult.category || 'HTT';
+          // Try to find matching category in the ledger
+          const matchedCategory = categories.find(cat => 
+            cat.name.toLowerCase() === llmCategoryName.toLowerCase()
+          );
+          
+          return {
+            ...transaction,
+            categoryId: matchedCategory ? matchedCategory.id : null,
+            categoryName: matchedCategory ? matchedCategory.name : llmCategoryName
+          };
+        }
+        
+        return transaction;
+      });
+
+      // Proceed with normal import
+      await importTransactions(transactionsWithLLMCategories);
+      setSuccess(`Successfully imported ${importResults?.imported || 0} transactions with AI categorization!`);
+      
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        setError('LLM categorization was cancelled.');
+      } else {
+        console.error('LLM categorization error:', error);
+        setError(`LLM categorization failed: ${error.message}`);
+        // Fallback to normal import without LLM categories
+        await importTransactions(transactions);
+      }
+    } finally {
+      setLlmProcessing(false);
+      setImporting(false);
+    }
   };
 
   // Import transactions to Firestore using batch writes for better performance
@@ -443,26 +558,25 @@ export default function DataImport() {
       setDisplayedTransactions(parsedTransactions.map(t => ({
         ...t,
         llmCategory: null,
-        llmProcessing: false
+        llmProcessing: true
       })));
 
       // Check if smart categorization is enabled and API key is available
       if (smartCategorizationEnabled && apiKey && (selectedPlatform === 'alipay' || selectedPlatform === 'wechat')) {
         setLlmProcessing(true);
-        // TODO: Trigger LLM categorization process
-        console.log('Smart categorization enabled, will process with LLM');
+        // Trigger LLM categorization process
+        await processLLMCategorization(parsedTransactions);
       } else {
         // Proceed with normal import
         await importTransactions(parsedTransactions);
         setSuccess(`Successfully imported ${importResults?.imported || 0} transactions!`);
+        setImporting(false);
       }
     } catch (err) {
       console.error("Import error:", err);
       setError(`Import error: ${err.message}`);
-    } finally {
-      if (!smartCategorizationEnabled || !apiKey) {
-        setImporting(false);
-      }
+      setImporting(false);
+      setLlmProcessing(false);
     }
   };
 
@@ -551,6 +665,21 @@ export default function DataImport() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Show streaming content when LLM is processing */}
+        {llmProcessing && streamingContent && (
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Response Stream</CardTitle>
+              <CardDescription>Real-time categorization response from AI</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
+                {streamingContent}
               </div>
             </CardContent>
           </Card>
