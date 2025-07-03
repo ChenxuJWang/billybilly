@@ -14,7 +14,8 @@ import {
   Smartphone,
   CreditCard,
   Bot,
-  XCircle
+  XCircle,
+  Edit
 } from 'lucide-react';
 import {
   collection,
@@ -79,6 +80,7 @@ export default function DataImport({ debugModeEnabled }) {
   const [displayedTransactions, setDisplayedTransactions] = useState([]);
   const [llmProcessing, setLlmProcessing] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [reviewingTransactions, setReviewingTransactions] = useState(false); // New state for review stage
   const abortControllerRef = useRef(null); // For canceling LLM process
 
   // Load smart categorization settings
@@ -367,7 +369,7 @@ export default function DataImport({ debugModeEnabled }) {
       // Update final results
       updatePartialResults(finalResults);
 
-      // Update transactions with LLM categories and proceed with import
+      // Update transactions with LLM categories and prepare for review
       const transactionsWithLLMCategories = transactions.map((transaction) => {
         const apiResult = finalResults.transactions.find(t => 
           parseInt(t.id) === transaction.id
@@ -383,16 +385,17 @@ export default function DataImport({ debugModeEnabled }) {
           return {
             ...transaction,
             categoryId: matchedCategory ? matchedCategory.id : null,
-            categoryName: matchedCategory ? matchedCategory.name : llmCategoryName
+            categoryName: matchedCategory ? matchedCategory.name : llmCategoryName,
+            llmCategory: llmCategoryName, // Store LLM suggested category for display
+            llmProcessing: false // Mark as processed
           };
         }
         
         return transaction;
       });
 
-      // Proceed with normal import
-      await importTransactions(transactionsWithLLMCategories);
-      setSuccess(`Successfully imported ${importResults?.imported || 0} transactions with AI categorization!`);
+      setDisplayedTransactions(transactionsWithLLMCategories); // Update displayed transactions with LLM results
+      setReviewingTransactions(true); // Enter review stage
       
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -509,6 +512,7 @@ export default function DataImport({ debugModeEnabled }) {
     setImportResults(null);
     setError("");
     setSuccess("");
+    setReviewingTransactions(false); // Reset review state
     abortControllerRef.current = new AbortController(); // Initialize AbortController
 
     try {
@@ -568,7 +572,48 @@ export default function DataImport({ debugModeEnabled }) {
       setLlmProcessing(false);
       setImporting(false);
       setError('LLM categorization cancelled by user.');
+      setReviewingTransactions(false); // Exit review state if cancelled during processing
     }
+  };
+
+  const handleConfirmImport = async () => {
+    setImporting(true); // Re-enable importing state for progress display
+    setReviewingTransactions(false); // Exit review state
+    setError('');
+    setSuccess('');
+    try {
+      await importTransactions(displayedTransactions); // Import the reviewed/edited transactions
+      setSuccess(`Successfully imported ${importResults?.imported || 0} transactions with AI categorization!`);
+    } catch (err) {
+      console.error('Error confirming import:', err);
+      setError(`Import confirmation failed: ${err.message}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleCancelReview = () => {
+    setReviewingTransactions(false);
+    setImporting(false);
+    setDisplayedTransactions([]);
+    setParsedTransactions([]);
+    setFile(null);
+    setError('');
+    setSuccess('Import cancelled.');
+  };
+
+  const handleCategoryChange = (transactionId, newCategoryId) => {
+    setDisplayedTransactions(prevTransactions =>
+      prevTransactions.map(transaction =>
+        transaction.id === transactionId
+          ? { 
+              ...transaction, 
+              categoryId: newCategoryId, 
+              categoryName: categories.find(cat => cat.id === newCategoryId)?.name || 'HTT' 
+            }
+          : transaction
+      )
+    );
   };
 
   useEffect(() => {
@@ -671,6 +716,97 @@ export default function DataImport({ debugModeEnabled }) {
             <Progress value={importProgress} className="w-full" />
             <p className="text-center text-gray-600">{importProgress}% Complete</p>
           </>
+        )}
+      </div>
+    );
+  }
+
+  if (reviewingTransactions) {
+    const expenseCategories = categories.filter(cat => cat.type === 'expense');
+    const incomeCategories = categories.filter(cat => cat.type === 'income');
+
+    return (
+      <div className="p-6 space-y-4">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-gray-900">Review Categorization</h1>
+          <div className="flex space-x-2">
+            <Button variant="outline" onClick={handleCancelReview} className="flex items-center space-x-2">
+              <XCircle className="h-4 w-4" />
+              <span>Cancel</span>
+            </Button>
+            <Button onClick={handleConfirmImport} className="flex items-center space-x-2">
+              <CheckCircle className="h-4 w-4" />
+              <span>Confirm Import</span>
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Categorized Transactions</CardTitle>
+            <CardDescription>Review and adjust the AI-suggested categories.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto">
+              {displayedTransactions.map((transaction, index) => (
+                <div key={index} className="flex flex-col md:flex-row justify-between items-start md:items-center p-3 border rounded-lg shadow-sm">
+                  <div className="flex-1 mb-2 md:mb-0">
+                    <div className="font-medium text-lg">{transaction.description}</div>
+                    <div className="text-sm text-gray-600">
+                      {transaction.date.toLocaleString()} • {transaction.amount} CNY
+                      {transaction.counterparty && ` • ${transaction.counterparty}`}
+                    </div>
+                    <Badge variant={transaction.type === 'expense' ? 'destructive' : 'default'} className="mt-1">
+                      {transaction.type}
+                    </Badge>
+                  </div>
+                  <div className="flex flex-col md:flex-row items-start md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                    <div className="text-sm text-gray-700">
+                      AI Suggestion: <span className="font-semibold">{transaction.llmCategory || 'N/A'}</span>
+                    </div>
+                    <Select
+                      value={transaction.categoryId || ''}
+                      onValueChange={(newCategoryId) => handleCategoryChange(transaction.id, newCategoryId)}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select Category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Uncategorized</SelectItem>
+                        {transaction.type === 'expense' && expenseCategories.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                        ))}
+                        {transaction.type === 'income' && incomeCategories.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {debugModeEnabled && streamingContent && (
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Response Stream (Debug)</CardTitle>
+              <CardDescription>Raw streaming response from AI during categorization.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
+                {streamingContent}
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
     );
