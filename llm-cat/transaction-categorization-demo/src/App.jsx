@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { z } from 'zod'
+import { parse, Allow } from 'partial-json'
 import { Button } from '@/components/ui/button.jsx'
 import { Input } from '@/components/ui/input.jsx'
 import { Textarea } from '@/components/ui/textarea.jsx'
@@ -83,14 +84,14 @@ function App() {
     try {
       // Clean up the content - remove markdown code blocks
       let cleanContent = content.trim()
-      if (cleanContent.startsWith('```json')) {
-        cleanContent = cleanContent.replace(/^```json\s*/, '').replace(/\s*```$/, '')
-      } else if (cleanContent.startsWith('```')) {
-        cleanContent = cleanContent.replace(/^```\s*/, '').replace(/\s*```$/, '')
+      if (cleanContent.startsWith("```json")) {
+        cleanContent = cleanContent.replace(/^```json\s*/, "").replace(/\s*```$/, "")
+      } else if (cleanContent.startsWith("```")) {
+        cleanContent = cleanContent.replace(/^```\s*/, "").replace(/\s*```$/, "")
       }
 
-      // Try to parse as JSON
-      const parsed = JSON.parse(cleanContent)
+      // Try to parse as JSON using partial-json
+      const parsed = parse(cleanContent, Allow.ALL)
       
       // Validate with Zod
       const validated = ResponseSchema.parse(parsed)
