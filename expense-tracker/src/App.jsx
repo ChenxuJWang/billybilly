@@ -30,6 +30,7 @@ import BudgetManagement from './components/BudgetManagement'
 import CategoryManagement from './components/CategoryManagement'
 import LedgerManagement from './components/LedgerManagement'
 import ProfileSettings from './components/ProfileSettings'
+import SmartCategorizationSettings from './components/SmartCategorizationSettings'
 import DataImport from './components/DataImport'
 import './App.css'
 
@@ -199,12 +200,19 @@ function Import() {
 }
 
 function AppSettings() {
+  const [smartCategorizationEnabled, setSmartCategorizationEnabled] = useState(false);
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
       
       {/* Profile Settings */}
       <ProfileSettings />
+
+      {/* Smart Categorization Settings */}
+      <SmartCategorizationSettings
+        smartCategorizationEnabled={smartCategorizationEnabled}
+        setSmartCategorizationEnabled={setSmartCategorizationEnabled}
+      />
       
       {/* Additional Settings Placeholder */}
       <Card>
