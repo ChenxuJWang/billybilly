@@ -46,7 +46,8 @@ export const callLLMCategorization = async (
   apiKey, 
   onStreamUpdate, 
   onPartialResults,
-  abortSignal
+  abortSignal,
+  thinkingEnabled = false
 ) => {
   // Prepare CSV data for the API
   const csvHeaders = "Date,Description,Amount,Counterparty";
@@ -69,7 +70,10 @@ export const callLLMCategorization = async (
       }
     ],
     model: "doubao-seed-1-6-flash-250615",
-    stream: true
+    stream: true,
+    thinking: {
+      type: thinkingEnabled ? "enabled" : "disabled"
+    }
   };
 
   const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {

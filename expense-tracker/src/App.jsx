@@ -195,11 +195,11 @@ function ExpenseSplits() {
   )
 }
 
-function Import({ debugModeEnabled }) {
-  return <DataImport debugModeEnabled={debugModeEnabled} />
+function Import({ debugModeEnabled, thinkingModeEnabled }) {
+  return <DataImport debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />
 }
 
-function AppSettings({ smartCategorizationEnabled, setSmartCategorizationEnabled, debugModeEnabled, setDebugModeEnabled }) {
+function AppSettings({ smartCategorizationEnabled, setSmartCategorizationEnabled, debugModeEnabled, setDebugModeEnabled, thinkingModeEnabled, setThinkingModeEnabled }) {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
@@ -213,6 +213,8 @@ function AppSettings({ smartCategorizationEnabled, setSmartCategorizationEnabled
         setSmartCategorizationEnabled={setSmartCategorizationEnabled}
         debugModeEnabled={debugModeEnabled}
         setDebugModeEnabled={setDebugModeEnabled}
+        thinkingModeEnabled={thinkingModeEnabled}
+        setThinkingModeEnabled={setThinkingModeEnabled}
       />
       
       {/* Additional Settings Placeholder */}
@@ -235,6 +237,7 @@ function AppContent() {
   const { currentUser } = useAuth()
   const [debugModeEnabled, setDebugModeEnabled] = useState(false); // State for debug mode, passed to Import
   const [smartCategorizationEnabled, setSmartCategorizationEnabled] = useState(false); // State for smart categorization, passed to AppSettings
+  const [thinkingModeEnabled, setThinkingModeEnabled] = useState(false); // State for thinking mode, passed to Import and AppSettings
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -281,7 +284,7 @@ function AppContent() {
           } />
           <Route path="/import" element={
             <ProtectedRoute>
-              <Import debugModeEnabled={debugModeEnabled} />
+              <Import debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />
             </ProtectedRoute>
           } />
           <Route path="/settings" element={
@@ -291,6 +294,8 @@ function AppContent() {
                 setSmartCategorizationEnabled={setSmartCategorizationEnabled}
                 debugModeEnabled={debugModeEnabled}
                 setDebugModeEnabled={setDebugModeEnabled}
+                thinkingModeEnabled={thinkingModeEnabled}
+                setThinkingModeEnabled={setThinkingModeEnabled}
               />
             </ProtectedRoute>
           } />

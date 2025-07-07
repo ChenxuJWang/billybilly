@@ -16,7 +16,9 @@ function SmartCategorizationSettings({
   smartCategorizationEnabled,
   setSmartCategorizationEnabled,
   debugModeEnabled, // New prop for debug mode
-  setDebugModeEnabled // New prop for debug mode
+  setDebugModeEnabled, // New prop for debug mode
+  thinkingModeEnabled, // New prop for thinking mode
+  setThinkingModeEnabled // New prop for thinking mode
 }) {
   const { currentUser } = useAuth();
   const { currentLedger } = useLedger();
@@ -180,6 +182,17 @@ function SmartCategorizationSettings({
                 onCheckedChange={setDebugModeEnabled}
               />
             </div>
+
+            {apiKeyConfirmed && (
+              <div className="flex items-center justify-between space-x-2 mb-4">
+                <Label htmlFor="thinking-mode">Enable Thinking Mode (Default: Off)</Label>
+                <Switch
+                  id="thinking-mode"
+                  checked={thinkingModeEnabled}
+                  onCheckedChange={setThinkingModeEnabled}
+                />
+              </div>
+            )}
 
             <div className="space-y-4 mb-4">
               <Label htmlFor="api-key">Doubao API Key</Label>

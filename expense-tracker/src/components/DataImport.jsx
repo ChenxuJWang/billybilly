@@ -60,7 +60,7 @@ const IMPORT_PLATFORMS = [
   }
 ];
 
-export default function DataImport({ debugModeEnabled }) {
+export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
   const [selectedPlatform, setSelectedPlatform] = useState('');
@@ -100,7 +100,8 @@ export default function DataImport({ debugModeEnabled }) {
           const expenseCategories = categories.filter(cat => cat.type === 'expense');
           const incomeCategories = categories.filter(cat => cat.type === 'income');
           
-          const prompt = `You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${expenseCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT: (Hard To Tell) if you can't unambiguously assign one of the above"}\n\n   **Income Categories**  \n   ${incomeCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT"}\n\n   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n\n3. Output a single JSON object with this exact structure:\n\n{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: ${[...expenseCategories, ...incomeCategories].map(cat => cat.name).join(", ")}, HTT>"\n    }\n  ]\n}\n\n4.  Optionally, "corrections" showing prior mis-classifications I've corrected may be provided to guide this categorization `;
+          const prompt = `You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${expenseCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT: (Hard To Tell) if you can't unambiguously assign one of the above"}\n\n   **Income Categories**  \n   ${incomeCategories.map(cat => `- ${cat.name}`).join("\\n") || "- HTT"}\n\n   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n\n3. Output a single JSON object with this exact structure:\n\n{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: ${[...expenseCategories, ...incomeCategories].map(cat => cat.name).join(", ")}, HTT>"\n    }\n  ]\n}\n
+4.  Optionally, "corrections" showing prior mis-classifications I've corrected may be provided to guide this categorization `;
           
           setSystemPrompt(prompt);
         }
@@ -130,6 +131,26 @@ export default function DataImport({ debugModeEnabled }) {
     } catch (error) {
       console.error('Error fetching categories:', error);
     }
+  };
+
+  // Helper function to parse CSV line considering quoted fields
+  const parseCSVLine = (line) => {
+    const fields = [];
+    let inQuote = false;
+    let currentField = '';
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuote = !inQuote;
+      } else if (char === ',' && !inQuote) {
+        fields.push(currentField.trim());
+        currentField = '';
+      } else {
+        currentField += char;
+      }
+    }
+    fields.push(currentField.trim()); // Add the last field
+    return fields.map(field => field.replace(/^"|"$/g, '')); // Remove surrounding quotes
   };
 
   // Parse Alipay CSV
@@ -170,7 +191,7 @@ export default function DataImport({ debugModeEnabled }) {
       if (!line) continue;
       
       // More robust CSV parsing - handle quoted fields
-      const fields = line.split(',').map(field => field.replace(/^"|"$/g, '').trim());
+      const fields = parseCSVLine(line);
       if (fields.length < 6) continue;
 
       // Handle different CSV formats
@@ -187,8 +208,8 @@ export default function DataImport({ debugModeEnabled }) {
         continue; // Skip invalid lines
       }
       
-      // Skip non-transaction records
-      if (!type || (type !== "支出" && type !== "收入")) continue;
+      // Classify non-"支出" and non-"收入" as "income"
+      const transactionType = (type === "支出") ? "expense" : "income";
       
       // Parse amount - handle different formats
       const amountStr = amount.toString().replace(/[^\d.-]/g, "");
@@ -207,7 +228,7 @@ export default function DataImport({ debugModeEnabled }) {
       transactions.push({
         id: i - dataStartIndex + 1, // Self-incrementing ID starting from 1
         date: new Date(dateTime),
-        type: type === "支出" ? "expense" : "income",
+        type: transactionType,
         amount: Math.abs(parsedAmount),
         description: description || "Unknown Transaction",
         notes: notes,
@@ -266,7 +287,7 @@ export default function DataImport({ debugModeEnabled }) {
       if (!line) continue;
 
       // More robust CSV parsing - handle quoted fields
-      const fields = line.split(',').map(field => field.replace(/^"|"$/g, '').trim());
+      const fields = parseCSVLine(line);
       if (fields.length < 6) continue;
 
       // Handle different CSV formats
@@ -282,8 +303,8 @@ export default function DataImport({ debugModeEnabled }) {
         continue; // Skip invalid lines
       }
       
-      // Skip non-transaction records
-      if (!type || (type !== "支出" && type !== "收入")) continue;
+      // Classify non-"支出" and non-"收入" as "income"
+      const transactionTypeMapped = (type === "支出") ? "expense" : "income";
       
       // Parse amount - handle different formats (remove ¥ symbol and other characters)
       const cleanAmountStr = amountStr.toString().replace(/[¥￥,\s]/g, "").replace(/[^\d.-]/g, "");
@@ -302,7 +323,7 @@ export default function DataImport({ debugModeEnabled }) {
       transactions.push({
         id: i - dataStartIndex + 1, // Self-incrementing ID starting from 1
         date: new Date(dateTime),
-        type: type === "支出" ? "expense" : "income",
+        type: transactionTypeMapped,
         amount: Math.abs(parsedAmount),
         description: product || "Unknown Transaction",
         notes: notes,
@@ -363,7 +384,8 @@ export default function DataImport({ debugModeEnabled }) {
         apiKey,
         onStreamUpdate,
         onPartialResults,
-        abortControllerRef.current?.signal
+        abortControllerRef.current?.signal,
+        thinkingModeEnabled || false
       );
 
       // Update final results
@@ -587,8 +609,6 @@ export default function DataImport({ debugModeEnabled }) {
     } catch (err) {
       console.error('Error confirming import:', err);
       setError(`Import confirmation failed: ${err.message}`);
-    } finally {
-      setImporting(false);
     }
   };
 
@@ -608,8 +628,8 @@ export default function DataImport({ debugModeEnabled }) {
         transaction.id === transactionId
           ? { 
               ...transaction, 
-              categoryId: newCategoryId, 
-              categoryName: categories.find(cat => cat.id === newCategoryId)?.name || 'HTT' 
+              categoryId: newCategoryId === 'uncategorized' ? null : newCategoryId, 
+              categoryName: newCategoryId === 'uncategorized' ? 'Uncategorized' : (categories.find(cat => cat.id === newCategoryId)?.name || 'HTT')
             }
           : transaction
       )
@@ -763,7 +783,7 @@ export default function DataImport({ debugModeEnabled }) {
                       {transaction.date.toLocaleString()} • {transaction.amount} CNY
                       {transaction.counterparty && ` • ${transaction.counterparty}`}
                     </div>
-                    <Badge variant={transaction.type === 'expense' ? 'destructive' : 'default'} className="mt-1">
+                    <Badge variant={transaction.type === 'expense' ? 'destructive' : 'default'}>
                       {transaction.type}
                     </Badge>
                   </div>
@@ -772,14 +792,14 @@ export default function DataImport({ debugModeEnabled }) {
                       AI Suggestion: <span className="font-semibold">{transaction.llmCategory || 'N/A'}</span>
                     </div>
                     <Select
-                      value={transaction.categoryId || ''}
+                      value={transaction.categoryId && categories.find(cat => cat.id === transaction.categoryId) ? transaction.categoryId : 'uncategorized'}
                       onValueChange={(newCategoryId) => handleCategoryChange(transaction.id, newCategoryId)}
                     >
                       <SelectTrigger className="w-[180px]">
                         <SelectValue placeholder="Select Category" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Uncategorized</SelectItem>
+                        <SelectItem value="uncategorized">Uncategorized</SelectItem>
                         {transaction.type === 'expense' && expenseCategories.map(cat => (
                           <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
                         ))}
@@ -917,4 +937,6 @@ export default function DataImport({ debugModeEnabled }) {
     </div>
   );
 }
+
+
 
