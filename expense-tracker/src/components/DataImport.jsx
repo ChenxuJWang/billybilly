@@ -33,6 +33,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
 import { callLLMCategorization } from '../utils/llmCategorization';
 
+function normalize(str) {
+  return (str || '').trim().toLowerCase();
+}
+
 const IMPORT_PLATFORMS = [
   {
     id: 'alipay',
@@ -253,8 +257,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
 
       // Map to existing categories or use original category name
       const mappedCategory = categories.find(cat => 
-        cat.name.toLowerCase().includes(category.toLowerCase()) ||
-        category.toLowerCase().includes(cat.name.toLowerCase())
+        normalize(cat.name).includes(normalize(category)) ||
+        normalize(category).includes(normalize(cat.name))
       );
       
       // Create notes with counterparty information for Alipay
@@ -348,8 +352,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
       
       // Map to existing categories or use original category name
       const mappedCategory = categories.find(cat => 
-        cat.name.toLowerCase().includes(transactionType.toLowerCase()) ||
-        transactionType.toLowerCase().includes(cat.name.toLowerCase())
+        normalize(cat.name).includes(normalize(transactionType)) ||
+        normalize(transactionType).includes(normalize(cat.name))
       );
       
       // Create notes with counterparty information for WeChat Pay
@@ -434,9 +438,9 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
         
         if (apiResult) {
           const llmCategoryName = apiResult.category || 'HTT';
-          // Try to find matching category in the ledger
+          // Try to find matching category in the ledger using normalize
           const matchedCategory = categories.find(cat => 
-            cat.name.toLowerCase() === llmCategoryName.toLowerCase()
+            normalize(cat.name) === normalize(llmCategoryName)
           );
           
           return {
