@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React,{ useRef, useEffect, useState } from 'react'
 import { z } from 'zod'
 import { parse, Allow } from 'partial-json'
 import { Button } from '@/components/ui/button.jsx'
@@ -104,6 +104,7 @@ function App() {
 
   // Update partial results in real-time
   const updatePartialResults = (validatedData) => {
+    let lastChangedId = null;
     const updatedResults = transactionData.map((transaction, index) => {
       const apiResult = validatedData.transactions.find(t => 
         parseInt(t.id) === transaction.id
@@ -113,6 +114,14 @@ function App() {
         const category = apiResult.category || apiResult.cat || 'HTT'
         const expectedCategory = validationData[index] || ''
         const isCorrect = expectedCategory ? category === expectedCategory : null
+
+        // Detect if this transaction's category just changed
+        if (
+          !partialResults[index] && category // first time category is set
+          || (partialResults[index] && partialResults[index].category !== category) // category changed
+        ) {
+          lastChangedId = transaction.id;
+        }
 
         return {
           ...transaction,
@@ -126,6 +135,9 @@ function App() {
     })
     
     setPartialResults(updatedResults)
+    if (lastChangedId !== null) {
+      setLastUpdatedId(lastChangedId)
+    }
   }
 
   const handleApiKeyConfirm = () => {
@@ -270,7 +282,8 @@ function App() {
           }
         ],
         model: "doubao-seed-1-6-flash-250615",
-        stream: true
+        stream: true,
+        thinking: {type: "enabled"}
       }
 
       const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
@@ -364,6 +377,21 @@ function App() {
       setIsProcessing(false)
     }
   }
+
+  const transactionRefs = useRef({}) // { [id]: ref }
+  const [lastUpdatedId, setLastUpdatedId] = useState(null)
+
+  useEffect(() => {
+    if (lastUpdatedId && transactionRefs.current[lastUpdatedId]) {
+      transactionRefs.current[lastUpdatedId].current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      })
+    }
+  }, [lastUpdatedId])
+
+  useEffect(() => {
+  }, [transactionData])
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
@@ -508,11 +536,18 @@ function App() {
           <CardContent>
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {transactionData.map((transaction) => {
+                if (!transactionRefs.current[transaction.id]) {
+                  transactionRefs.current[transaction.id] = React.createRef()
+                }
                 // Use partial results during streaming, final results when complete
                 const result = (partialResults.length > 0 ? partialResults : results).find(r => r.id === transaction.id)
                 
                 return (
-                  <div key={transaction.id} className="border rounded-lg p-3">
+                  <div
+                    key={transaction.id}
+                    ref={transactionRefs.current[transaction.id]}
+                    className="border rounded-lg p-3"
+                  >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="font-medium">ID: {transaction.id}</div>
