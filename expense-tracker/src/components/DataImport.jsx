@@ -83,6 +83,41 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const [reviewingTransactions, setReviewingTransactions] = useState(false); // New state for review stage
   const abortControllerRef = useRef(null); // For canceling LLM process
 
+  // Transaction refs for scrolling 
+  const transactionRefs = useRef({});
+  const [lastUpdatedId, setLastUpdatedId] = useState(null);
+
+  // Scroll to last updated transaction when lastUpdatedId changes
+  useEffect(() => {
+    if (lastUpdatedId && transactionRefs.current[lastUpdatedId]) {
+      transactionRefs.current[lastUpdatedId].current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, [lastUpdatedId]);
+
+  // Detect when a transaction's llmCategory is set/changed
+  useEffect(() => {
+    if (!llmProcessing) return;
+    let lastChangedId = null;
+    displayedTransactions.forEach((transaction, idx) => {
+      // Only scroll if llmCategory is set for the first time or changed
+      if (
+        transaction.llmCategory &&
+        (!transactionRefs.current._prevLlmCategories ||
+          transactionRefs.current._prevLlmCategories[transaction.id] !== transaction.llmCategory)
+      ) {
+        lastChangedId = transaction.id;
+      }
+    });
+    // Save current llmCategories for next comparison
+    transactionRefs.current._prevLlmCategories = Object.fromEntries(
+      displayedTransactions.map(t => [t.id, t.llmCategory])
+    );
+    if (lastChangedId) setLastUpdatedId(lastChangedId);
+  }, [displayedTransactions, llmProcessing]);
+
   // Load smart categorization settings
   const loadSmartCategorizationSettings = async () => {
     if (!currentUser) return;
@@ -690,27 +725,36 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
             </CardHeader>
             <CardContent>
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {displayedTransactions.map((transaction, index) => (
-                  <div key={index} className="flex justify-between items-center p-2 border rounded">
-                    <div className="flex-1">
-                      <div className="font-medium">{transaction.description}</div>
-                      <div className="text-sm text-gray-500">
-                        {transaction.date.toLocaleString()} • {transaction.amount} CNY
-                        {transaction.counterparty && ` • ${transaction.counterparty}`}
+                {displayedTransactions.map((transaction, index) => {
+                  if (!transactionRefs.current[transaction.id]) {
+                    transactionRefs.current[transaction.id] = React.createRef();
+                  }
+                  return (
+                    <div
+                      key={transaction.id}
+                      ref={transactionRefs.current[transaction.id]}
+                      className="flex justify-between items-center p-2 border rounded"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{transaction.description}</div>
+                        <div className="text-sm text-gray-500">
+                          {transaction.date.toLocaleString()} • {transaction.amount} CNY
+                          {transaction.counterparty && ` • ${transaction.counterparty}`}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <Badge variant={transaction.type === 'expense' ? 'destructive' : 'default'}>
+                          {transaction.type}
+                        </Badge>
+                        {llmProcessing && (
+                          <div className="text-sm text-gray-500 mt-1">
+                            {transaction.llmCategory || 'Processing...'}
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <Badge variant={transaction.type === 'expense' ? 'destructive' : 'default'}>
-                        {transaction.type}
-                      </Badge>
-                      {llmProcessing && (
-                        <div className="text-sm text-gray-500 mt-1">
-                          {transaction.llmCategory || 'Processing...'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
