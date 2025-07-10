@@ -50,9 +50,9 @@ export const callLLMCategorization = async (
   thinkingEnabled = false
 ) => {
   // Prepare CSV data for the API
-  const csvHeaders = "Date,Description,Amount,Counterparty";
+  const csvHeaders = "Date,Description,Amount,Type,Counterparty";
   const csvData = csvHeaders + "\n" + transactions.map(t => 
-    `"${t.date.toISOString()}","${t.description}","${t.amount}","${t.counterparty || ''}"`
+    `"${t.date.toISOString()}","${t.description}","${t.amount}","${t.type}","${t.counterparty || ''}"`
   ).join('\n');
 
   const userMessage = "Please categorize the following transactions:";
