@@ -84,6 +84,9 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const [displayedTransactions, setDisplayedTransactions] = useState([]);
   const [llmProcessing, setLlmProcessing] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingReasoningContent, setStreamingReasoningContent] = useState('');
+  const [streamingFinishReason, setStreamingFinishReason] = useState('');
+  const [debugInfo, setDebugInfo] = useState(null);
   const [reviewingTransactions, setReviewingTransactions] = useState(false); // New state for review stage
   const abortControllerRef = useRef(null); // For canceling LLM process
 
@@ -408,13 +411,28 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const processLLMCategorization = async (transactions) => {
     try {
       setStreamingContent('');
+      setStreamingReasoningContent('');
+      setStreamingFinishReason('');
+      setDebugInfo(null);
       
-      const onStreamUpdate = (content) => {
-        setStreamingContent(content);
+      const onStreamUpdate = (streamingData) => {
+        if (typeof streamingData === 'string') {
+          // Backward compatibility for old format
+          setStreamingContent(streamingData);
+        } else {
+          // New format with additional data
+          setStreamingContent(streamingData.content || '');
+          setStreamingReasoningContent(streamingData.reasoningContent || '');
+          setStreamingFinishReason(streamingData.finishReason || '');
+        }
       };
 
       const onPartialResults = (data) => {
         updatePartialResults(data);
+      };
+
+      const onDebugUpdate = (debugData) => {
+        setDebugInfo(debugData);
       };
 
       const finalResults = await callLLMCategorization(
@@ -424,7 +442,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
         onStreamUpdate,
         onPartialResults,
         abortControllerRef.current?.signal,
-        thinkingModeEnabled || false
+        thinkingModeEnabled || false,
+        onDebugUpdate
       );
 
       // Update final results
@@ -661,6 +680,14 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
     setSuccess('Import cancelled.');
   };
 
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
   const handleCategoryChange = (transactionId, newCategoryId) => {
     setDisplayedTransactions(prevTransactions =>
       prevTransactions.map(transaction =>
@@ -765,18 +792,83 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
         )}
         
         {/* Show streaming content when LLM is processing */}
-        {llmProcessing && debugModeEnabled && streamingContent && (
-          <Card>
-            <CardHeader>
-              <CardTitle>AI Response Stream</CardTitle>
-              <CardDescription>Real-time categorization response from AI</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
-                {streamingContent}
-              </div>
-            </CardContent>
-          </Card>
+        {llmProcessing && debugModeEnabled && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* AI Response Stream */}
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle>AI Response Stream</CardTitle>
+                    <CardDescription>Real-time categorization response from AI</CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => copyToClipboard(streamingContent)}
+                    className="flex items-center space-x-1"
+                  >
+                    <span>Copy</span>
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {streamingContent && (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-1">Content:</div>
+                      <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
+                        {streamingContent}
+                      </div>
+                    </div>
+                  )}
+                  {streamingReasoningContent && (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-1">Reasoning:</div>
+                      <div className="bg-blue-50 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
+                        {streamingReasoningContent}
+                      </div>
+                    </div>
+                  )}
+                  {streamingFinishReason && (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-1">Finish Reason:</div>
+                      <div className="bg-green-50 p-2 rounded text-sm">
+                        {streamingFinishReason}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Debug Panel for Raw Request */}
+            {debugInfo && (
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <CardTitle>Raw Request Debug</CardTitle>
+                      <CardDescription>Full API request details</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(JSON.stringify(debugInfo, null, 2))}
+                      className="flex items-center space-x-1"
+                    >
+                      <span>Copy</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-96 overflow-y-auto">
+                    <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
         
         {!llmProcessing && (
@@ -863,18 +955,85 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
           </CardContent>
         </Card>
 
-        {debugModeEnabled && streamingContent && (
-          <Card>
-            <CardHeader>
-              <CardTitle>AI Response Stream (Debug)</CardTitle>
-              <CardDescription>Raw streaming response from AI during categorization.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
-                {streamingContent}
-              </div>
-            </CardContent>
-          </Card>
+        {debugModeEnabled && (streamingContent || streamingReasoningContent || debugInfo) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* AI Response Stream (Debug) */}
+            {(streamingContent || streamingReasoningContent) && (
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <CardTitle>AI Response Stream (Debug)</CardTitle>
+                      <CardDescription>Raw streaming response from AI during categorization.</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(streamingContent + '\n\nReasoning:\n' + streamingReasoningContent)}
+                      className="flex items-center space-x-1"
+                    >
+                      <span>Copy</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {streamingContent && (
+                      <div>
+                        <div className="text-sm font-medium text-gray-700 mb-1">Content:</div>
+                        <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
+                          {streamingContent}
+                        </div>
+                      </div>
+                    )}
+                    {streamingReasoningContent && (
+                      <div>
+                        <div className="text-sm font-medium text-gray-700 mb-1">Reasoning:</div>
+                        <div className="bg-blue-50 p-3 rounded text-sm font-mono max-h-40 overflow-y-auto">
+                          {streamingReasoningContent}
+                        </div>
+                      </div>
+                    )}
+                    {streamingFinishReason && (
+                      <div>
+                        <div className="text-sm font-medium text-gray-700 mb-1">Finish Reason:</div>
+                        <div className="bg-green-50 p-2 rounded text-sm">
+                          {streamingFinishReason}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Debug Panel for Raw Request */}
+            {debugInfo && (
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <CardTitle>Raw Request Debug</CardTitle>
+                      <CardDescription>Full API request details used for categorization.</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(JSON.stringify(debugInfo, null, 2))}
+                      className="flex items-center space-x-1"
+                    >
+                      <span>Copy</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="bg-gray-100 p-3 rounded text-sm font-mono max-h-96 overflow-y-auto">
+                    <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
       </div>
     );

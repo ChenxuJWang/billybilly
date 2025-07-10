@@ -47,7 +47,8 @@ export const callLLMCategorization = async (
   onStreamUpdate, 
   onPartialResults,
   abortSignal,
-  thinkingEnabled = false
+  thinkingEnabled = false,
+  onDebugUpdate = null
 ) => {
   // Prepare CSV data for the API
   const csvHeaders = "Date,Description,Amount,Type,Counterparty";
@@ -76,12 +77,25 @@ export const callLLMCategorization = async (
     }
   };
 
+  const requestHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${apiKey}`
+  };
+
+  // Send debug info if callback provided
+  if (onDebugUpdate) {
+    const debugInfo = {
+      url: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+      method: 'POST',
+      headers: requestHeaders,
+      body: requestBody
+    };
+    onDebugUpdate(debugInfo);
+  }
+
   const response = await fetch('https://ark.cn-beijing.volces.com/api/v3/chat/completions', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
+    headers: requestHeaders,
     body: JSON.stringify(requestBody),
     signal: abortSignal
   });
@@ -94,6 +108,8 @@ export const callLLMCategorization = async (
   const decoder = new TextDecoder();
   let buffer = '';
   let fullContent = '';
+  let fullReasoningContent = '';
+  let lastFinishReason = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -110,17 +126,42 @@ export const callLLMCategorization = async (
 
         try {
           const parsed = JSON.parse(data);
-          if (parsed.choices && parsed.choices[0] && parsed.choices[0].delta && parsed.choices[0].delta.content) {
-            const newContent = parsed.choices[0].delta.content;
-            fullContent += newContent;
+          if (parsed.choices && parsed.choices[0]) {
+            const choice = parsed.choices[0];
+            const delta = choice.delta;
             
-            // Update streaming content display
-            onStreamUpdate(fullContent);
+            // Capture content
+            if (delta && delta.content) {
+              const newContent = delta.content;
+              fullContent += newContent;
+            }
+            
+            // Capture reasoning content
+            if (delta && delta.reasoning_content) {
+              fullReasoningContent += delta.reasoning_content;
+            }
+            
+            // Capture finish reason
+            if (choice.finish_reason) {
+              lastFinishReason = choice.finish_reason;
+            }
+            
+            // Update streaming content display with all available info
+            const streamingData = {
+              content: fullContent,
+              reasoningContent: fullReasoningContent,
+              finishReason: lastFinishReason,
+              rawDelta: delta,
+              rawChoice: choice
+            };
+            onStreamUpdate(streamingData);
             
             // Try to parse and validate the current content
-            const parseResult = tryParseStreamingJSON(fullContent);
-            if (parseResult.success) {
-              onPartialResults(parseResult.data);
+            if (fullContent) {
+              const parseResult = tryParseStreamingJSON(fullContent);
+              if (parseResult.success) {
+                onPartialResults(parseResult.data);
+              }
             }
           }
         } catch (e) {
@@ -135,7 +176,11 @@ export const callLLMCategorization = async (
   const finalParseResult = tryParseStreamingJSON(fullContent);
   
   if (finalParseResult.success) {
-    return finalParseResult.data;
+    return {
+      ...finalParseResult.data,
+      reasoningContent: fullReasoningContent,
+      finishReason: lastFinishReason
+    };
   } else {
     throw new Error(`Failed to parse final response: ${finalParseResult.error}`);
   }
