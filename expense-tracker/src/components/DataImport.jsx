@@ -86,6 +86,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingReasoningContent, setStreamingReasoningContent] = useState('');
   const [streamingFinishReason, setStreamingFinishReason] = useState('');
+  const [llmUsage, setLlmUsage] = useState(null); // New state for LLM usage
+  const [llmProcessingTitle, setLlmProcessingTitle] = useState("Processing with Smart Categorization..."); // New state for dynamic LLM processing title
   const [debugInfo, setDebugInfo] = useState(null);
   const [reviewingTransactions, setReviewingTransactions] = useState(false); // New state for review stage
   const abortControllerRef = useRef(null); // For canceling LLM process
@@ -413,9 +415,12 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
       setStreamingContent('');
       setStreamingReasoningContent('');
       setStreamingFinishReason('');
+      setLlmUsage(null); // Reset LLM usage
+      setLlmProcessingTitle("Processing with Smart Categorization..."); // Reset title
       setDebugInfo(null);
       
       const onStreamUpdate = (streamingData) => {
+        console.log('streamingData:', streamingData); // Add this line for debugging
         if (typeof streamingData === 'string') {
           // Backward compatibility for old format
           setStreamingContent(streamingData);
@@ -423,7 +428,9 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
           // New format with additional data
           setStreamingContent(streamingData.content || '');
           setStreamingReasoningContent(streamingData.reasoningContent || '');
-          setStreamingFinishReason(streamingData.finishReason || '');
+          setLlmProcessingTitle("LLM Is Reviewing Transactions");
+          setStreamingFinishReason(streamingData.finishReason || "");
+          setLlmUsage(streamingData.usage || null); // Capture usage
         }
       };
 
@@ -645,6 +652,29 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
     }
   };
 
+  const handleRetryLLMCategorization = async () => {
+    setReviewingTransactions(false); // Exit review state
+    setImporting(true); // Re-enable importing state
+    setLlmProcessing(true); // Indicate LLM processing
+    setError("");
+    setSuccess("");
+    setStreamingContent("");
+    setStreamingReasoningContent("");
+    setStreamingFinishReason("");
+    setLlmUsage(null);
+    setDebugInfo(null);
+    abortControllerRef.current = new AbortController();
+    try {
+      await processLLMCategorization(parsedTransactions);
+    } catch (err) {
+      console.error("Retry LLM categorization error:", err);
+      setError(`Retry LLM categorization failed: ${err.message}`);
+    } finally {
+      setLlmProcessing(false);
+      setImporting(false);
+    }
+  };
+
   const handleCancelLlmProcessing = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort(); // Signal to cancel the ongoing fetch/LLM process
@@ -735,7 +765,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
       <div className="p-6 space-y-4">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gray-900">
-            {llmProcessing ? 'Processing with Smart Categorization...' : 'Importing Transactions...'}
+            {llmProcessing ? llmProcessingTitle : 'Importing Transactions...'}
           </h1>
           {llmProcessing && (
             <Button variant="outline" onClick={handleCancelLlmProcessing} className="flex items-center space-x-2">
@@ -838,6 +868,18 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
                       </div>
                     </div>
                   )}
+                  {llmUsage && (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-1">Token Usage:</div>
+                      <div className="bg-purple-50 p-3 rounded text-sm font-mono">
+                        <p>Completion Tokens: {llmUsage.completion_tokens}</p>
+                        <p>Prompt Tokens: {llmUsage.prompt_tokens}</p>
+                        <p>Total Tokens: {llmUsage.total_tokens}</p>
+                        <p>Cached Tokens: {llmUsage.prompt_tokens_details?.cached_tokens || 0}</p>
+                        <p>Reasoning Tokens: {llmUsage.completion_tokens_details?.reasoning_tokens || 0}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -885,6 +927,10 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
     const expenseCategories = categories.filter(cat => cat.type === 'expense');
     const incomeCategories = categories.filter(cat => cat.type === 'income');
 
+    const hasUncategorizedTransactions = displayedTransactions.some(
+      (transaction) => !transaction.categoryId || transaction.categoryName === 'Uncategorized' || transaction.categoryName === 'HTT'
+    );
+
     return (
       <div className="p-6 space-y-4">
         <div className="flex justify-between items-center">
@@ -894,7 +940,11 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
               <XCircle className="h-4 w-4" />
               <span>Cancel</span>
             </Button>
-            <Button onClick={handleConfirmImport} className="flex items-center space-x-2">
+            <Button variant="outline" onClick={handleRetryLLMCategorization} className="flex items-center space-x-2">
+              <Bot className="h-4 w-4" />
+              <span>Retry LLM</span>
+            </Button>
+            <Button onClick={handleConfirmImport} className="flex items-center space-x-2" disabled={hasUncategorizedTransactions}>
               <CheckCircle className="h-4 w-4" />
               <span>Confirm Import</span>
             </Button>
@@ -916,7 +966,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
           <CardContent>
             <div className="space-y-4 max-h-[70vh] overflow-y-auto">
               {displayedTransactions.map((transaction, index) => (
-                <div key={index} className="flex flex-col md:flex-row justify-between items-start md:items-center p-3 border rounded-lg shadow-sm">
+                <div key={index} className={`flex flex-col md:flex-row justify-between items-start md:items-center p-3 border rounded-lg shadow-sm ${(!transaction.categoryId || transaction.categoryName === 'Uncategorized' || transaction.categoryName === 'HTT') ? 'bg-[#B2DAFF]' : ''}`}>
                   <div className="flex-1 mb-2 md:mb-0">
                     <div className="font-medium text-lg">{transaction.description}</div>
                     <div className="text-sm text-gray-600">
@@ -955,10 +1005,10 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
           </CardContent>
         </Card>
 
-        {debugModeEnabled && (streamingContent || streamingReasoningContent || debugInfo) && (
+        {debugModeEnabled && (streamingContent || streamingReasoningContent || debugInfo || llmUsage) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* AI Response Stream (Debug) */}
-            {(streamingContent || streamingReasoningContent) && (
+            {(streamingContent || streamingReasoningContent || llmUsage) && (
               <Card>
                 <CardHeader>
                   <div className="flex justify-between items-center">
@@ -999,6 +1049,18 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
                         <div className="text-sm font-medium text-gray-700 mb-1">Finish Reason:</div>
                         <div className="bg-green-50 p-2 rounded text-sm">
                           {streamingFinishReason}
+                        </div>
+                      </div>
+                    )}
+                    {llmUsage && (
+                      <div>
+                        <div className="text-sm font-medium text-gray-700 mb-1">Token Usage:</div>
+                        <div className="bg-purple-50 p-3 rounded text-sm font-mono">
+                          <p>Completion Tokens: {llmUsage.completion_tokens}</p>
+                          <p>Prompt Tokens: {llmUsage.prompt_tokens}</p>
+                          <p>Total Tokens: {llmUsage.total_tokens}</p>
+                          <p>Cached Tokens: {llmUsage.prompt_tokens_details?.cached_tokens || 0}</p>
+                          <p>Reasoning Tokens: {llmUsage.completion_tokens_details?.reasoning_tokens || 0}</p>
                         </div>
                       </div>
                     )}
@@ -1144,6 +1206,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
     </div>
   );
 }
+
+
 
 
 

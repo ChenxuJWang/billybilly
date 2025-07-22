@@ -110,6 +110,7 @@ export const callLLMCategorization = async (
   let fullContent = '';
   let fullReasoningContent = '';
   let lastFinishReason = null;
+  let llmUsage = null; // Initialize llmUsage
 
   while (true) {
     const { done, value } = await reader.read();
@@ -145,6 +146,11 @@ export const callLLMCategorization = async (
             if (choice.finish_reason) {
               lastFinishReason = choice.finish_reason;
             }
+
+            // Capture usage information if available
+            if (parsed.usage) {
+              llmUsage = parsed.usage;
+            }
             
             // Update streaming content display with all available info
             const streamingData = {
@@ -152,7 +158,8 @@ export const callLLMCategorization = async (
               reasoningContent: fullReasoningContent,
               finishReason: lastFinishReason,
               rawDelta: delta,
-              rawChoice: choice
+              rawChoice: choice,
+              usage: llmUsage // Pass usage information
             };
             onStreamUpdate(streamingData);
             
@@ -179,7 +186,8 @@ export const callLLMCategorization = async (
     return {
       ...finalParseResult.data,
       reasoningContent: fullReasoningContent,
-      finishReason: lastFinishReason
+      finishReason: lastFinishReason,
+      llmUsage: llmUsage // Return usage information with the final result
     };
   } else {
     throw new Error(`Failed to parse final response: ${finalParseResult.error}`);
