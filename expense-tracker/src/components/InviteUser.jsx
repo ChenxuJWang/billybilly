@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
@@ -6,16 +6,7 @@ import { Label } from '@/components/ui/label.jsx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
-import { 
-  UserPlus, 
-  Mail, 
-  X,
-  Send,
-  Clock,
-  Check,
-  Trash2,
-  Users
-} from 'lucide-react';
+import { UserPlus, X, Send, Clock, Check, Trash2, Users } from 'lucide-react';
 import { 
   collection, 
   addDoc, 
@@ -25,14 +16,11 @@ import {
   deleteDoc, 
   query, 
   where,
-  orderBy,
-  Timestamp
+  orderBy
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
-import ProfileImage from './ProfileImage';
-
 export default function InviteUser({ ledger, onClose }) {
   const { currentUser } = useAuth();
   const { refreshLedgers } = useLedger();
@@ -49,7 +37,7 @@ export default function InviteUser({ ledger, onClose }) {
   });
 
   // Fetch existing invitations for this ledger
-  const fetchInvitations = async () => {
+  const fetchInvitations = useCallback(async () => {
     if (!ledger) return;
 
     try {
@@ -74,10 +62,10 @@ export default function InviteUser({ ledger, onClose }) {
     } catch (error) {
       console.error('Error fetching invitations:', error);
     }
-  };
+  }, [ledger]);
 
   // Fetch current members
-  const fetchMembers = async () => {
+  const fetchMembers = useCallback(async () => {
     if (!ledger || !ledger.members) return;
 
     try {
@@ -97,7 +85,7 @@ export default function InviteUser({ ledger, onClose }) {
               role: ledger.members[userId]
             });
           });
-        } catch (error) {
+        } catch {
           // If user document doesn't exist, create a placeholder
           memberList.push({
             id: userId,
@@ -112,7 +100,7 @@ export default function InviteUser({ ledger, onClose }) {
     } catch (error) {
       console.error('Error fetching members:', error);
     }
-  };
+  }, [ledger]);
 
   // Send invitation
   const sendInvitation = async () => {
@@ -218,7 +206,7 @@ export default function InviteUser({ ledger, onClose }) {
   useEffect(() => {
     fetchInvitations();
     fetchMembers();
-  }, [ledger]);
+  }, [fetchInvitations, fetchMembers]);
 
   useEffect(() => {
     if (success || error) {
@@ -390,4 +378,3 @@ export default function InviteUser({ ledger, onClose }) {
     </div>
   );
 }
-

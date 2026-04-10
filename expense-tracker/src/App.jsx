@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { Suspense, lazy, useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button.jsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
@@ -22,17 +22,33 @@ import {
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { LedgerProvider } from './contexts/LedgerContext'
 import ProtectedRoute from './components/ProtectedRoute'
-import Login from './components/Login'
-import Signup from './components/Signup'
-import Dashboard from './components/Dashboard'
-import TransactionManagement from './components/TransactionManagement'
-import BudgetManagement from './components/BudgetManagement'
-import CategoryManagement from './components/CategoryManagement'
-import LedgerManagement from './components/LedgerManagement'
-import ProfileSettings from './components/ProfileSettings'
-import SmartCategorizationSettings from './components/SmartCategorizationSettings'
-import DataImport from './components/DataImport'
 import './App.css'
+
+const Login = lazy(() => import('./components/Login'))
+const Signup = lazy(() => import('./components/Signup'))
+const Dashboard = lazy(() => import('./components/Dashboard'))
+const TransactionManagement = lazy(() => import('./components/TransactionManagement'))
+const BudgetManagement = lazy(() => import('./components/BudgetManagement'))
+const CategoryManagement = lazy(() => import('./components/CategoryManagement'))
+const LedgerManagement = lazy(() => import('./components/LedgerManagement'))
+const ProfileSettings = lazy(() => import('./components/ProfileSettings'))
+const SmartCategorizationSettings = lazy(() => import('./components/SmartCategorizationSettings'))
+const DataImport = lazy(() => import('./components/DataImport'))
+
+function RouteFallback() {
+  return (
+    <div className="p-6">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 w-48 rounded bg-gray-200"></div>
+        <div className="h-40 rounded bg-gray-200"></div>
+      </div>
+    </div>
+  )
+}
+
+function withSuspense(element) {
+  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
+}
 
 // Navigation Component
 function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }) {
@@ -167,15 +183,15 @@ function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }) {
 
 // Placeholder Components
 function Transactions() {
-  return <TransactionManagement />
+  return withSuspense(<TransactionManagement />)
 }
 
 function Budgets() {
-  return <BudgetManagement />
+  return withSuspense(<BudgetManagement />)
 }
 
 function Categories() {
-  return <CategoryManagement />
+  return withSuspense(<CategoryManagement />)
 }
 
 function ExpenseSplits() {
@@ -196,7 +212,9 @@ function ExpenseSplits() {
 }
 
 function Import({ debugModeEnabled, thinkingModeEnabled }) {
-  return <DataImport debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />
+  return withSuspense(
+    <DataImport debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />
+  )
 }
 
 function AppSettings({ smartCategorizationEnabled, setSmartCategorizationEnabled, debugModeEnabled, setDebugModeEnabled, thinkingModeEnabled, setThinkingModeEnabled }) {
@@ -205,17 +223,21 @@ function AppSettings({ smartCategorizationEnabled, setSmartCategorizationEnabled
       <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
       
       {/* Profile Settings */}
-      <ProfileSettings />
+      <Suspense fallback={<RouteFallback />}>
+        <ProfileSettings />
+      </Suspense>
 
       {/* Smart Categorization Settings */}
-      <SmartCategorizationSettings
-        smartCategorizationEnabled={smartCategorizationEnabled}
-        setSmartCategorizationEnabled={setSmartCategorizationEnabled}
-        debugModeEnabled={debugModeEnabled}
-        setDebugModeEnabled={setDebugModeEnabled}
-        thinkingModeEnabled={thinkingModeEnabled}
-        setThinkingModeEnabled={setThinkingModeEnabled}
-      />
+      <Suspense fallback={<RouteFallback />}>
+        <SmartCategorizationSettings
+          smartCategorizationEnabled={smartCategorizationEnabled}
+          setSmartCategorizationEnabled={setSmartCategorizationEnabled}
+          debugModeEnabled={debugModeEnabled}
+          setDebugModeEnabled={setDebugModeEnabled}
+          thinkingModeEnabled={thinkingModeEnabled}
+          setThinkingModeEnabled={setThinkingModeEnabled}
+        />
+      </Suspense>
       
       {/* Additional Settings Placeholder */}
       <Card>
@@ -250,11 +272,11 @@ function AppContent() {
       
       <main className={currentUser ? "max-w-7xl mx-auto" : ""}>
         <Routes>
-          <Route path="/login" element={currentUser ? <Navigate to="/" /> : <Login />} />
-          <Route path="/signup" element={currentUser ? <Navigate to="/" /> : <Signup />} />
+          <Route path="/login" element={currentUser ? <Navigate to="/" /> : withSuspense(<Login />)} />
+          <Route path="/signup" element={currentUser ? <Navigate to="/" /> : withSuspense(<Signup />)} />
           <Route path="/" element={
             <ProtectedRoute>
-              <Dashboard />
+              {withSuspense(<Dashboard />)}
             </ProtectedRoute>
           } />
           <Route path="/transactions" element={
@@ -274,7 +296,7 @@ function AppContent() {
           } />
           <Route path="/ledgers" element={
             <ProtectedRoute>
-              <LedgerManagement />
+              {withSuspense(<LedgerManagement />)}
             </ProtectedRoute>
           } />
           <Route path="/splits" element={
@@ -318,5 +340,4 @@ function App() {
 }
 
 export default App
-
 

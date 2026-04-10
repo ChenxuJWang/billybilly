@@ -1,157 +1,189 @@
-import React, { useState, useEffect } from 'react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { useAuth } from "../contexts/AuthContext";
-import { useLedger } from "../contexts/LedgerContext";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle, AlertCircle } from "lucide-react";
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle, Save } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
+import { Label } from '@/components/ui/label.jsx';
+import { Switch } from '@/components/ui/switch.jsx';
+import { Input } from '@/components/ui/input.jsx';
+import { Textarea } from '@/components/ui/textarea.jsx';
+import { Button } from '@/components/ui/button.jsx';
+import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select.jsx';
+import { useAuth } from '@/contexts/AuthContext';
+import { useLedger } from '@/contexts/LedgerContext';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/firebase';
+import { CATEGORIZATION_ENGINE_OPTIONS } from '@/features/categorization/constants';
+import { buildLlmSystemPrompt } from '@/features/categorization/prompt';
+import {
+  loadCategorizationSettings,
+  saveCategorizationSettings,
+  verifyLlmApiKey,
+} from '@/features/categorization/settings';
 
-function SmartCategorizationSettings({
+export default function SmartCategorizationSettings({
   smartCategorizationEnabled,
   setSmartCategorizationEnabled,
-  debugModeEnabled, // New prop for debug mode
-  setDebugModeEnabled, // New prop for debug mode
-  thinkingModeEnabled, // New prop for thinking mode
-  setThinkingModeEnabled // New prop for thinking mode
+  debugModeEnabled,
+  setDebugModeEnabled,
+  thinkingModeEnabled,
+  setThinkingModeEnabled,
 }) {
   const { currentUser } = useAuth();
   const { currentLedger } = useLedger();
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyConfirmed, setApiKeyConfirmed] = useState(false);
-  const [apiKeyError, setApiKeyError] = useState("");
-  const [apiKeyLoading, setApiKeyLoading] = useState(false);
-  const [systemPrompt, setSystemPrompt] = useState(`You are a financial-data assistant. I will provide you with a CSV file of transactions containing at least the following columns: Date, Description, Amount.  Response in JSON and say nothing else:\n\n1. For each row, determine whether it is an **expense** or an **income**.   \n\n2. Assign each transaction to one of the following **Expense** or **Income** categories (or to a special category if needed):\n\n   **Expense Categories**  \n   ${currentLedger?.expenseCategories?.map(cat => `- ${cat.name}`).join("\\n") || "- HTT: (Hard To Tell) if you can\\\"t unambiguously assign one of the above"}\n
-   **Income Categories**  \n   ${currentLedger?.incomeCategories?.map(cat => `- ${cat.name}`).join("\\n") || "- HTT"}\n
-   Use merchant names, keywords in the description, or amount signs to guide your choice.  \n
-3. Output a single JSON object with this exact structure:\n
-\
-{\n  "transactions": [\n    {\n      "id": "<self-increment id>",\n      "category": "<one of the given categories: Bills & Utilities, \u2026, Refund, HTT>"\n    }\n  ]\n}\n
-4.  Optionally, "corrections" showing prior mis-classifications I\\\"ve corrected may be provided to guide this categorization `);
-  const [systemPromptConfirmed, setSystemPromptConfirmed] = useState(false);
-  const [systemPromptError, setSystemPromptError] = useState("");
-  const [systemPromptLoading, setSystemPromptLoading] = useState(false);
+
+  const [categories, setCategories] = useState([]);
   const [settingsLoading, setSettingsLoading] = useState(true);
+  const [categorizationEngine, setCategorizationEngine] = useState('rules');
+  const [apiKey, setApiKey] = useState('');
+  const [apiKeyVerified, setApiKeyVerified] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState('');
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState('');
+  const [systemPromptError, setSystemPromptError] = useState('');
+  const [systemPromptSaving, setSystemPromptSaving] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
 
-  // Load settings from Firestore on component mount
   useEffect(() => {
-    const loadSettings = async () => {
-      if (!currentUser) return;
+    async function fetchCategories() {
+      if (!currentLedger) {
+        setCategories([]);
+        return;
+      }
 
-      setSettingsLoading(true);
       try {
-        const userDocRef = doc(db, "users", currentUser.uid);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          const userData = userDocSnap.data();
-          setSmartCategorizationEnabled(userData.smartCategorizationEnabled || false);
-          setApiKey(userData.llmApiKey || "");
-          if (userData.llmApiKey) {
-            setApiKeyConfirmed(true);
-          }
-        }
-      } catch (error) {
-        console.error("Error loading smart categorization settings:", error);
+        const categoriesSnapshot = await getDocs(
+          collection(db, 'ledgers', currentLedger.id, 'categories')
+        );
+
+        setCategories(
+          categoriesSnapshot.docs.map((categorySnapshot) => ({
+            id: categorySnapshot.id,
+            ...categorySnapshot.data(),
+          }))
+        );
+      } catch (categoriesError) {
+        console.error('Error fetching categories for categorization settings:', categoriesError);
+      }
+    }
+
+    fetchCategories();
+  }, [currentLedger]);
+
+  useEffect(() => {
+    async function fetchSettings() {
+      setSettingsLoading(true);
+
+      try {
+        const settings = await loadCategorizationSettings(currentUser, categories);
+        setSmartCategorizationEnabled(settings.enabled);
+        setCategorizationEngine(settings.engine);
+        setApiKey(settings.apiKey);
+        setApiKeyVerified(Boolean(settings.apiKey));
+        setSystemPrompt(settings.systemPrompt);
+      } catch (settingsError) {
+        console.error('Error loading categorization settings:', settingsError);
       } finally {
         setSettingsLoading(false);
       }
-    };
-
-    loadSettings();
-  }, [currentUser, setSmartCategorizationEnabled]);
-
-  // Save smartCategorizationEnabled to Firestore
-  useEffect(() => {
-    if (currentUser && !settingsLoading) {
-      const saveSetting = async () => {
-        try {
-          const userDocRef = doc(db, "users", currentUser.uid);
-          await updateDoc(userDocRef, {
-            smartCategorizationEnabled: smartCategorizationEnabled,
-            updatedAt: new Date(),
-          });
-        } catch (error) {
-          console.error("Error saving smart categorization setting:", error);
-        }
-      };
-      saveSetting();
     }
-  }, [smartCategorizationEnabled, currentUser, settingsLoading]);
 
-  const handleApiKeyConfirm = async () => {
+    fetchSettings();
+  }, [currentUser, categories, setSmartCategorizationEnabled]);
+
+  useEffect(() => {
+    if (!statusMessage && !apiKeyError && !systemPromptError) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setStatusMessage('');
+      setApiKeyError('');
+      setSystemPromptError('');
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [statusMessage, apiKeyError, systemPromptError]);
+
+  async function persistSettings(nextSettings) {
+    try {
+      await saveCategorizationSettings(currentUser, nextSettings);
+    } catch (saveError) {
+      console.error('Failed to save categorization settings:', saveError);
+    }
+  }
+
+  async function handleEnabledChange(nextEnabled) {
+    setSmartCategorizationEnabled(nextEnabled);
+    await persistSettings({ smartCategorizationEnabled: nextEnabled });
+  }
+
+  async function handleEngineChange(nextEngine) {
+    setCategorizationEngine(nextEngine);
+    setSystemPrompt((previousPrompt) =>
+      previousPrompt || buildLlmSystemPrompt(categories)
+    );
+    await persistSettings({ categorizationEngine: nextEngine });
+    setStatusMessage(`Switched automatic categorization to ${nextEngine === 'rules' ? 'Rule Engine' : 'LLM'}.`);
+  }
+
+  async function handleApiKeyVerify() {
     if (!apiKey.trim()) {
-      setApiKeyError("Please enter an API key.");
+      setApiKeyError('Please enter an API key.');
       return;
     }
 
     setApiKeyLoading(true);
-    setApiKeyError("");
+    setApiKeyError('');
 
     try {
-      const response = await fetch("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          messages: [
-            {
-              content: "hello world",
-              role: "user",
-            },
-          ],
-          model: "doubao-seed-1-6-flash-250615",
-        }),
+      await verifyLlmApiKey(apiKey);
+      setApiKeyVerified(true);
+      await persistSettings({
+        llmApiKey: apiKey,
+        categorizationEngine: categorizationEngine,
       });
-
-      if (response.ok) {
-        setApiKeyConfirmed(true);
-        setApiKeyError("");
-        if (currentUser) {
-          const userDocRef = doc(db, "users", currentUser.uid);
-          await updateDoc(userDocRef, {
-            llmApiKey: apiKey,
-            updatedAt: new Date(),
-          });
-        }
-      } else {
-        const errorData = await response.json();
-        setApiKeyError(`API Key verification failed: ${errorData.message || response.statusText}`);
-        setApiKeyConfirmed(false);
-      }
-    } catch (error) {
-      setApiKeyError(`Network error: ${error.message}`);
-      setApiKeyConfirmed(false);
+      setStatusMessage('API key verified successfully.');
+    } catch (verificationError) {
+      setApiKeyVerified(false);
+      setApiKeyError(`API key verification failed: ${verificationError.message}`);
     } finally {
       setApiKeyLoading(false);
     }
-  };
+  }
 
-  const handleSystemPromptConfirm = () => {
-    if (systemPrompt.trim()) {
-      setSystemPromptConfirmed(true);
-      setSystemPromptError("");
-    } else {
-      setSystemPromptError("System prompt cannot be empty.");
+  async function handlePromptSave() {
+    if (!systemPrompt.trim()) {
+      setSystemPromptError('System prompt cannot be empty.');
+      return;
     }
-  };
+
+    setSystemPromptSaving(true);
+    setSystemPromptError('');
+
+    try {
+      await persistSettings({ categorizationSystemPrompt: systemPrompt });
+      setStatusMessage('System prompt saved.');
+    } catch (promptSaveError) {
+      setSystemPromptError(promptSaveError.message || 'Failed to save the system prompt.');
+    } finally {
+      setSystemPromptSaving(false);
+    }
+  }
 
   if (settingsLoading) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Smart Categorization Settings</CardTitle>
+          <CardTitle>Automatic Categorization</CardTitle>
           <CardDescription>Loading settings...</CardDescription>
         </CardHeader>
-        <CardContent>
-          <p>Loading...</p>
-        </CardContent>
+        <CardContent>Loading...</CardContent>
       </Card>
     );
   }
@@ -159,23 +191,47 @@ function SmartCategorizationSettings({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Smart Categorization Settings</CardTitle>
-        <CardDescription>Configure settings for LLM-powered transaction categorization.</CardDescription>
+        <CardTitle>Automatic Categorization</CardTitle>
+        <CardDescription>
+          Configure which categorization engine the import flow should use.
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex items-center justify-between space-x-2 mb-4">
-          <Label htmlFor="smart-categorization-mode">Enable Smart Categorization</Label>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between space-x-2">
+          <Label htmlFor="automatic-categorization">Enable automatic categorization</Label>
           <Switch
-            id="smart-categorization-mode"
+            id="automatic-categorization"
             checked={smartCategorizationEnabled}
-            onCheckedChange={setSmartCategorizationEnabled}
+            onCheckedChange={handleEnabledChange}
           />
         </div>
 
         {smartCategorizationEnabled && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between space-x-2 mb-4">
-              <Label htmlFor="debug-mode">Enable Debug Mode (Session Only)</Label>
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="categorization-engine">Categorization engine</Label>
+              <Select value={categorizationEngine} onValueChange={handleEngineChange}>
+                <SelectTrigger id="categorization-engine">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIZATION_ENGINE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-gray-500">
+                {
+                  CATEGORIZATION_ENGINE_OPTIONS.find((option) => option.value === categorizationEngine)
+                    ?.description
+                }
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between space-x-2">
+              <Label htmlFor="debug-mode">Enable debug mode (session only)</Label>
               <Switch
                 id="debug-mode"
                 checked={debugModeEnabled}
@@ -183,75 +239,95 @@ function SmartCategorizationSettings({
               />
             </div>
 
-            {apiKeyConfirmed && (
-              <div className="flex items-center justify-between space-x-2 mb-4">
-                <Label htmlFor="thinking-mode">Enable Thinking Mode (Default: Off)</Label>
-                <Switch
-                  id="thinking-mode"
-                  checked={thinkingModeEnabled}
-                  onCheckedChange={setThinkingModeEnabled}
-                />
-              </div>
+            {categorizationEngine === 'llm' && (
+              <>
+                <div className="flex items-center justify-between space-x-2">
+                  <Label htmlFor="thinking-mode">Enable thinking mode (session only)</Label>
+                  <Switch
+                    id="thinking-mode"
+                    checked={thinkingModeEnabled}
+                    onCheckedChange={setThinkingModeEnabled}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <Label htmlFor="api-key">Doubao API Key</Label>
+                  <div className="flex items-center space-x-2">
+                    <Input
+                      id="api-key"
+                      type="password"
+                      placeholder="Enter your Doubao API key"
+                      value={apiKey}
+                      onChange={(event) => {
+                        setApiKey(event.target.value);
+                        setApiKeyVerified(false);
+                      }}
+                    />
+                    <Button
+                      onClick={handleApiKeyVerify}
+                      disabled={apiKeyLoading}
+                    >
+                      {apiKeyLoading ? 'Verifying...' : apiKeyVerified ? <CheckCircle className="h-4 w-4" /> : 'Verify'}
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="system-prompt">System Prompt</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handlePromptSave}
+                      disabled={systemPromptSaving}
+                    >
+                      <Save className="mr-2 h-4 w-4" />
+                      {systemPromptSaving ? 'Saving...' : 'Save Prompt'}
+                    </Button>
+                  </div>
+                  <Textarea
+                    id="system-prompt"
+                    value={systemPrompt}
+                    onChange={(event) => setSystemPrompt(event.target.value)}
+                    rows={10}
+                  />
+                </div>
+              </>
             )}
 
-            <div className="space-y-4 mb-4">
-              <Label htmlFor="api-key">Doubao API Key</Label>
-              <div className="flex items-center space-x-2">
-                <Input
-                  id="api-key"
-                  type="password"
-                  placeholder="Enter your Doubao API Key"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  disabled={apiKeyConfirmed || apiKeyLoading}
-                />
-                <Button onClick={handleApiKeyConfirm} disabled={apiKeyLoading || apiKeyConfirmed}>
-                  {apiKeyLoading ? "Verifying..." : apiKeyConfirmed ? <CheckCircle className="h-4 w-4" /> : "Verify"}
-                </Button>
-              </div>
-              {apiKeyError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{apiKeyError}</AlertDescription>
-                </Alert>
-              )}
-              {apiKeyConfirmed && (
-                <Alert>
-                  <CheckCircle className="h-4 w-4" />
-                  <AlertDescription>API Key verified successfully!</AlertDescription>
-                </Alert>
-              )}
-            </div>
-
-            {debugModeEnabled && (
-              <div className="space-y-4">
-                <Label htmlFor="system-prompt">System Prompt</Label>
-                <Textarea
-                  id="system-prompt"
-                  placeholder="Enter the system prompt for LLM categorization"
-                  value={systemPrompt}
-                  onChange={(e) => setSystemPrompt(e.target.value)}
-                  rows={10}
-                  disabled={systemPromptConfirmed}
-                />
-                <Button onClick={handleSystemPromptConfirm} disabled={systemPromptConfirmed}>
-                  {systemPromptConfirmed ? <CheckCircle className="h-4 w-4" /> : "Confirm Prompt"}
-                </Button>
-                {systemPromptError && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{systemPromptError}</AlertDescription>
-                  </Alert>
-                )}
-              </div>
+            {categorizationEngine === 'rules' && (
+              <Alert>
+                <CheckCircle className="h-4 w-4" />
+                <AlertDescription>
+                  The rule engine is now wired into the main import flow with built-in starter rules.
+                  This keeps the codebase ready for the full rule manager merge.
+                </AlertDescription>
+              </Alert>
             )}
-          </div>
+          </>
+        )}
+
+        {apiKeyError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{apiKeyError}</AlertDescription>
+          </Alert>
+        )}
+
+        {systemPromptError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{systemPromptError}</AlertDescription>
+          </Alert>
+        )}
+
+        {statusMessage && (
+          <Alert>
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>{statusMessage}</AlertDescription>
+          </Alert>
         )}
       </CardContent>
     </Card>
   );
 }
-
-export default SmartCategorizationSettings;
-
-

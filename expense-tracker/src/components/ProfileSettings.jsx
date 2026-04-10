@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
@@ -32,7 +32,7 @@ export default function ProfileSettings() {
   };
 
   // Load current user profile data
-  const loadProfileData = async () => {
+  const loadProfileData = useCallback(async () => {
     if (!currentUser) return;
 
     try {
@@ -52,7 +52,7 @@ export default function ProfileSettings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser]);
 
   // Save profile changes
   const saveProfile = async () => {
@@ -108,7 +108,7 @@ export default function ProfileSettings() {
 
   useEffect(() => {
     loadProfileData();
-  }, [currentUser]);
+  }, [loadProfileData]);
 
   useEffect(() => {
     if (success || error) {
@@ -237,4 +237,3 @@ export default function ProfileSettings() {
     </Card>
   );
 }
-

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
@@ -18,16 +18,7 @@ import {
   Crown,
   UserPlus
 } from 'lucide-react';
-import { 
-  collection, 
-  addDoc, 
-  getDocs, 
-  doc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  orderBy 
-} from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
@@ -44,7 +35,7 @@ const CURRENCY_OPTIONS = [
 
 export default function LedgerManagement() {
   const { currentUser } = useAuth();
-  const { ledgers, currentLedger, switchLedger, refreshLedgers, isOwner } = useLedger();
+  const { ledgers, currentLedger, switchLedger, refreshLedgers } = useLedger();
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingLedger, setEditingLedger] = useState(null);
@@ -68,7 +59,7 @@ export default function LedgerManagement() {
       setLoading(true);
       setError('');
 
-      const newLedger = await addDoc(collection(db, 'ledgers'), {
+      await addDoc(collection(db, 'ledgers'), {
         name: formData.name.trim(),
         description: formData.description.trim(),
         currency: formData.currency,
@@ -426,4 +417,3 @@ export default function LedgerManagement() {
     </div>
   );
 }
-

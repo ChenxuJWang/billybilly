@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { 
@@ -40,7 +40,7 @@ export default function Dashboard() {
     loading: true
   });
   // Calculate dashboard statistics
-  const calculateDashboardStats = async () => {
+  const calculateDashboardStats = useCallback(async () => {
     if (!currentLedger) {
       setDashboardData(prev => ({ ...prev, loading: false }));
       return;
@@ -153,11 +153,11 @@ export default function Dashboard() {
       console.error('Error calculating dashboard stats:', error);
       setDashboardData(prev => ({ ...prev, loading: false }));
     }
-  };
+  }, [currentLedger, currentUser]);
 
   useEffect(() => {
     calculateDashboardStats();
-  }, [currentLedger, lastTransactionUpdate]);
+  }, [calculateDashboardStats, lastTransactionUpdate]);
 
   const formatCurrencyAmount = (amount) => {
     return formatCurrency(amount, currentLedger?.currency);
@@ -365,4 +365,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

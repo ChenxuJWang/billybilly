@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext';
 
@@ -16,7 +16,7 @@ export function LedgerProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   // Fetch user's ledgers
-  const fetchLedgers = async () => {
+  const fetchLedgers = useCallback(async () => {
     if (!currentUser) {
       setLedgers([]);
       setCurrentLedger(null);
@@ -54,13 +54,13 @@ export function LedgerProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser]);
 
   // Refresh ledgers (useful after signup)
-  const refreshLedgers = async () => {
+  const refreshLedgers = useCallback(async () => {
     setLoading(true);
     await fetchLedgers();
-  };
+  }, [fetchLedgers]);
 
   // Switch to a different ledger
   const switchLedger = async (ledgerId) => {
@@ -94,7 +94,7 @@ export function LedgerProvider({ children }) {
 
   useEffect(() => {
     fetchLedgers();
-  }, [currentUser]);
+  }, [fetchLedgers]);
 
   // Add a second useEffect to handle potential delays in ledger creation
   useEffect(() => {
@@ -105,7 +105,7 @@ export function LedgerProvider({ children }) {
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [currentUser, ledgers.length, loading]);
+  }, [currentUser, ledgers.length, loading, refreshLedgers]);
 
   const value = {
     ledgers,
@@ -125,4 +125,3 @@ export function LedgerProvider({ children }) {
     </LedgerContext.Provider>
   );
 }
-

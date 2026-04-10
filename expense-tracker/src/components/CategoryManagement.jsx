@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
@@ -96,7 +96,7 @@ export default function CategoryManagement() {
   };
 
   // Fetch categories
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     if (!currentLedger) return;
 
     try {
@@ -119,7 +119,7 @@ export default function CategoryManagement() {
       setError('Failed to fetch categories');
       setLoading(false);
     }
-  };
+  }, [currentLedger]);
 
   // Create default categories if none exist
   const createDefaultCategories = async () => {
@@ -236,7 +236,7 @@ export default function CategoryManagement() {
 
   useEffect(() => {
     fetchCategories();
-  }, [currentLedger]);
+  }, [fetchCategories]);
 
   useEffect(() => {
     // Clear messages after 3 seconds
@@ -492,4 +492,3 @@ export default function CategoryManagement() {
     </div>
   );
 }
-

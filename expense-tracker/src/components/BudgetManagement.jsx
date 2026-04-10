@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
@@ -85,7 +85,7 @@ export default function BudgetManagement() {
   };
 
   // Fetch budgets
-  const fetchBudgets = async () => {
+  const fetchBudgets = useCallback(async () => {
     if (!currentLedger) return;
 
     try {
@@ -109,10 +109,10 @@ export default function BudgetManagement() {
       console.error('Error fetching budgets:', error);
       setError('Failed to fetch budgets');
     }
-  };
+  }, [currentLedger]);
 
   // Fetch categories
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     if (!currentLedger) return;
 
     try {
@@ -131,10 +131,10 @@ export default function BudgetManagement() {
     } catch (error) {
       console.error('Error fetching categories:', error);
     }
-  };
+  }, [currentLedger]);
 
   // Fetch transactions for budget calculations
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     if (!currentLedger) return;
 
     try {
@@ -156,7 +156,7 @@ export default function BudgetManagement() {
     } catch (error) {
       console.error('Error fetching transactions:', error);
     }
-  };
+  }, [currentLedger]);
 
   // Calculate budget spending
   const calculateBudgetSpending = (budget) => {
@@ -265,7 +265,7 @@ export default function BudgetManagement() {
     if (currentLedger) {
       Promise.all([fetchBudgets(), fetchCategories(), fetchTransactions()]).finally(() => setLoading(false));
     }
-  }, [currentLedger]);
+  }, [currentLedger, fetchBudgets, fetchCategories, fetchTransactions]);
 
   // Update end date when start date or time span changes
   useEffect(() => {
@@ -569,4 +569,3 @@ export default function BudgetManagement() {
     </div>
   );
 }
-

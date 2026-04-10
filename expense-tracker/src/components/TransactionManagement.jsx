@@ -1,258 +1,237 @@
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button.jsx';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
-import { Input } from '@/components/ui/input.jsx';
-import { Label } from '@/components/ui/label.jsx';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
-import { Textarea } from '@/components/ui/textarea.jsx';
-import { Checkbox } from '@/components/ui/checkbox.jsx';
-import { Badge } from '@/components/ui/badge.jsx';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
+import { Button } from '@/components/ui/button.jsx';
+import { Plus } from 'lucide-react';
 import {
-  Plus,
-  Edit,
-  Trash2,
-  Filter,
-  Search,
-  Calendar,
-  DollarSign,
-  Tag,
-  CheckSquare,
-  Square,
-  Users,
-  UserCheck
-} from 'lucide-react';
-import {
-  collection,
   addDoc,
-  getDocs,
-  doc,
-  updateDoc,
+  collection,
   deleteDoc,
-  query,
+  doc,
+  getDocs,
   orderBy,
-  where,
+  query,
   Timestamp,
-  writeBatch
+  updateDoc,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
-import { db } from '../firebase';
-import { useAuth } from '../contexts/AuthContext';
-import { useLedger } from '../contexts/LedgerContext';
-import ProfileImage, { ProfileImageWithName } from './ProfileImage';
-import { formatCurrency, formatCurrencyWithSign } from '../utils/currency';
+import { db } from '@/firebase';
+import { useAuth } from '@/contexts/AuthContext';
+import { useLedger } from '@/contexts/LedgerContext';
+import TransactionBatchEdit from '@/features/transactions/components/TransactionBatchEdit';
+import TransactionForm from '@/features/transactions/components/TransactionForm';
+import TransactionList from '@/features/transactions/components/TransactionList';
+import {
+  createDefaultBatchEditState,
+  createDefaultCategories,
+  createDefaultTransactionForm,
+  getSplitMode,
+  normalizeTransactionForEdit,
+} from '@/features/transactions/utils/transactionManagement';
 
 export default function TransactionManagement() {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
+
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingId, setEditingId] = useState(null);
   const [selectedTransactions, setSelectedTransactions] = useState([]);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [splitMode, setSplitMode] = useState('none');
 
-  // Form state
-  const [formData, setFormData] = useState({
-    amount: '',
-    type: 'expense',
-    description: '',
-    categoryId: '',
-    paymentMethod: 'cash',
-    notes: '',
-    includeInBudget: true,
-    date: new Date().toISOString().split('T')[0],
-    // Splitting fields
-    paidBy: currentUser?.uid || '',
-    splitType: 'none', // 'none', 'equal', 'custom'
-    splitWith: [], // CRITICAL: Always initialize as empty array
-    splitAmounts: {} // Object with userId: amount pairs for custom splits
-  });
+  const [formData, setFormData] = useState(createDefaultTransactionForm(currentUser?.uid || ''));
+  const [batchEditData, setBatchEditData] = useState(createDefaultBatchEditState());
 
-  // Split mode state for the new button logic
-  const [splitMode, setSplitMode] = useState('none'); // 'none', 'individuals', 'everyone'
-
-  // Batch edit state
-  const [batchEditData, setBatchEditData] = useState({
-    categoryId: '',
-    includeInBudget: null
-  });
-
-  // Reset form function
-  const resetForm = () => {
-    setFormData({
-      amount: '',
-      type: 'expense',
-      description: '',
-      categoryId: '',
-      paymentMethod: 'cash',
-      notes: '',
-      includeInBudget: true,
-      date: new Date().toISOString().split('T')[0],
-      paidBy: currentUser?.uid || '',
-      splitType: 'none',
-      splitWith: [], // CRITICAL: Reset to empty array
-      splitAmounts: {},
-    });
-    setSplitMode('none'); // CRITICAL FIX: Reset split mode to default
-    setIsEditing(false);
-    setEditingId(null);
+  const resetForm = useCallback(() => {
+    setFormData(createDefaultTransactionForm(currentUser?.uid || ''));
+    setSplitMode('none');
     setEditingTransaction(null);
-  };
+  }, [currentUser]);
 
-  // Fetch transactions
-  const fetchTransactions = async () => {
-    if (!currentLedger) return;
+  const createMissingDefaultCategories = useCallback(async () => {
+    if (!currentLedger) {
+      return;
+    }
+
+    const categoriesRef = collection(db, 'ledgers', currentLedger.id, 'categories');
+    for (const category of createDefaultCategories()) {
+      await addDoc(categoriesRef, category);
+    }
+  }, [currentLedger]);
+
+  const fetchTransactions = useCallback(async () => {
+    if (!currentLedger) {
+      setTransactions([]);
+      return;
+    }
 
     try {
-      const transactionsRef = collection(db, 'ledgers', currentLedger.id, 'transactions');
-      const q = query(transactionsRef, orderBy('date', 'desc'));
-      const querySnapshot = await getDocs(q);
-      
-      const transactionList = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        transactionList.push({
-          id: doc.id,
-          ...data,
-          date: data.date?.toDate() || new Date()
-        });
-      });
+      const transactionsSnapshot = await getDocs(
+        query(collection(db, 'ledgers', currentLedger.id, 'transactions'), orderBy('date', 'desc'))
+      );
 
-      setTransactions(transactionList);
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
+      setTransactions(
+        transactionsSnapshot.docs.map((transactionSnapshot) => {
+          const transaction = transactionSnapshot.data();
+          return {
+            id: transactionSnapshot.id,
+            ...transaction,
+            date: transaction.date?.toDate() || new Date(),
+          };
+        })
+      );
+    } catch (fetchError) {
+      console.error('Error fetching transactions:', fetchError);
       setError('Failed to fetch transactions');
     }
-  };
+  }, [currentLedger]);
 
-  // Fetch categories
-  const fetchCategories = async () => {
-    if (!currentLedger) return;
+  const fetchCategories = useCallback(async () => {
+    if (!currentLedger) {
+      setCategories([]);
+      return;
+    }
 
     try {
-      const categoriesRef = collection(db, 'ledgers', currentLedger.id, 'categories');
-      const querySnapshot = await getDocs(categoriesRef);
-      
-      const categoryList = [];
-      querySnapshot.forEach((doc) => {
-        categoryList.push({
-          id: doc.id,
-          ...doc.data()
-        });
-      });
+      const categoriesSnapshot = await getDocs(collection(db, 'ledgers', currentLedger.id, 'categories'));
+      const nextCategories = categoriesSnapshot.docs.map((categorySnapshot) => ({
+        id: categorySnapshot.id,
+        ...categorySnapshot.data(),
+      }));
 
-      setCategories(categoryList);
-
-      // Create default categories if none exist
-      if (categoryList.length === 0) {
-        await createDefaultCategories();
+      if (nextCategories.length === 0) {
+        await createMissingDefaultCategories();
+        const refreshedSnapshot = await getDocs(
+          collection(db, 'ledgers', currentLedger.id, 'categories')
+        );
+        setCategories(
+          refreshedSnapshot.docs.map((categorySnapshot) => ({
+            id: categorySnapshot.id,
+            ...categorySnapshot.data(),
+          }))
+        );
+        return;
       }
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-    }
-  };
 
-  // Fetch members with optimized queries
-  const fetchMembers = async () => {
-    if (!currentLedger?.members) return;
+      setCategories(nextCategories);
+    } catch (fetchError) {
+      console.error('Error fetching categories:', fetchError);
+      setError('Failed to fetch categories');
+    }
+  }, [createMissingDefaultCategories, currentLedger]);
+
+  const fetchMembers = useCallback(async () => {
+    if (!currentLedger?.members) {
+      setMembers([]);
+      return;
+    }
 
     try {
       const memberList = [];
       const userIds = Object.keys(currentLedger.members);
-      
-      // Batch user queries in groups of 10 (Firestore 'in' query limit)
-      const BATCH_SIZE = 10;
+      const batchSize = 10;
       const userDataMap = new Map();
-      
-      for (let i = 0; i < userIds.length; i += BATCH_SIZE) {
-        const batchUserIds = userIds.slice(i, i + BATCH_SIZE);
-        
+
+      for (let index = 0; index < userIds.length; index += batchSize) {
+        const batchUserIds = userIds.slice(index, index + batchSize);
+
         try {
-          const userQuery = query(
-            collection(db, 'users'),
-            where('__name__', 'in', batchUserIds)
+          const userSnapshot = await getDocs(
+            query(collection(db, 'users'), where('__name__', 'in', batchUserIds))
           );
-          const userSnapshot = await getDocs(userQuery);
-          
-          userSnapshot.forEach((doc) => {
-            userDataMap.set(doc.id, doc.data());
+
+          userSnapshot.forEach((userDoc) => {
+            userDataMap.set(userDoc.id, userDoc.data());
           });
-        } catch (error) {
-          console.error('Error fetching user batch:', error);
+        } catch (batchError) {
+          console.error('Error fetching user batch:', batchError);
         }
       }
-      
-      // Build member list with fetched data
+
       for (const [userId, role] of Object.entries(currentLedger.members)) {
-        let userData = { uid: userId, role };
-        
         const userInfo = userDataMap.get(userId);
+
         if (userInfo) {
-          userData = {
-            ...userData,
+          memberList.push({
+            uid: userId,
+            role,
             displayName: userInfo.displayName,
             email: userInfo.email,
-            profileColor: userInfo.profileColor
-          };
-        } else if (userId === currentUser?.uid) {
-          // Use current user data if user document doesn't exist
-          userData = {
-            ...userData,
-            displayName: currentUser.displayName,
-            email: currentUser.email
-          };
-        } else {
-          // Fallback for unknown users
-          userData = {
-            ...userData,
-            displayName: `User ${userId.slice(0, 8)}`,
-            email: `${userId.slice(0, 8)}@example.com`
-          };
+            profileColor: userInfo.profileColor,
+          });
+          continue;
         }
-        
-        memberList.push(userData);
+
+        if (userId === currentUser?.uid) {
+          memberList.push({
+            uid: userId,
+            role,
+            displayName: currentUser.displayName,
+            email: currentUser.email,
+          });
+          continue;
+        }
+
+        memberList.push({
+          uid: userId,
+          role,
+          displayName: `User ${userId.slice(0, 8)}`,
+          email: `${userId.slice(0, 8)}@example.com`,
+        });
       }
 
       setMembers(memberList);
-    } catch (error) {
-      console.error('Error fetching members:', error);
+    } catch (fetchError) {
+      console.error('Error fetching members:', fetchError);
+      setError('Failed to fetch members');
     }
-  };
+  }, [currentLedger, currentUser]);
 
-  // Create default categories
-  const createDefaultCategories = async () => {
-    const defaultCategories = [
-      { name: 'Food & Dining', type: 'expense' },
-      { name: 'Transportation', type: 'expense' },
-      { name: 'Shopping', type: 'expense' },
-      { name: 'Entertainment', type: 'expense' },
-      { name: 'Bills & Utilities', type: 'expense' },
-      { name: 'Healthcare', type: 'expense' },
-      { name: 'Salary', type: 'income' },
-      { name: 'Freelance', type: 'income' },
-      { name: 'Investment', type: 'income' }
-    ];
-
-    try {
-      const categoriesRef = collection(db, 'ledgers', currentLedger.id, 'categories');
-      for (const category of defaultCategories) {
-        await addDoc(categoriesRef, category);
-      }
-      await fetchCategories();
-    } catch (error) {
-      console.error('Error creating default categories:', error);
+  useEffect(() => {
+    if (!currentLedger) {
+      setLoading(false);
+      return;
     }
-  };
 
-  // Handle form submission
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+    setLoading(true);
+    Promise.all([fetchTransactions(), fetchCategories(), fetchMembers()]).finally(() => {
+      setLoading(false);
+    });
+  }, [currentLedger, fetchCategories, fetchMembers, fetchTransactions]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    setFormData((previous) => ({
+      ...previous,
+      paidBy: previous.paidBy || currentUser.uid,
+    }));
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!success && !error) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setSuccess('');
+      setError('');
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [success, error]);
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
     if (!canEdit()) {
       setError('You do not have permission to add transactions');
       return;
@@ -260,13 +239,13 @@ export default function TransactionManagement() {
 
     try {
       setError('');
+
       const transactionData = {
         ...formData,
-        amount: parseFloat(formData.amount),
+        amount: Number.parseFloat(formData.amount),
         date: Timestamp.fromDate(new Date(formData.date)),
         createdAt: Timestamp.now(),
         userId: currentUser.uid,
-        // Include splitting data
         paidBy: formData.paidBy,
         splitType: formData.splitType,
         splitWith: formData.splitWith,
@@ -280,24 +259,19 @@ export default function TransactionManagement() {
         );
         setSuccess('Transaction updated successfully');
       } else {
-        await addDoc(
-          collection(db, 'ledgers', currentLedger.id, 'transactions'),
-          transactionData
-        );
+        await addDoc(collection(db, 'ledgers', currentLedger.id, 'transactions'), transactionData);
         setSuccess('Transaction added successfully');
       }
 
-      resetForm(); // Call resetForm after successful submission
       setShowAddForm(false);
-      setEditingTransaction(null);
-      await fetchTransactions(); // Refresh transactions after submission
-    } catch (error) {
-      console.error('Error adding/updating transaction:', error);
-      setError('Failed to add/update transaction');
+      resetForm();
+      await fetchTransactions();
+    } catch (submitError) {
+      console.error('Error adding/updating transaction:', submitError);
+      setError('Failed to add or update transaction');
     }
   };
 
-  // Handle transaction deletion
   const handleDelete = async (transactionId) => {
     if (!canEdit()) {
       setError('You do not have permission to delete transactions');
@@ -308,237 +282,115 @@ export default function TransactionManagement() {
       await deleteDoc(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId));
       setSuccess('Transaction deleted successfully');
       await fetchTransactions();
-    } catch (error) {
-      console.error('Error deleting transaction:', error);
+    } catch (deleteError) {
+      console.error('Error deleting transaction:', deleteError);
       setError('Failed to delete transaction');
     }
   };
 
-  // Handle batch deletion with batch writes for better performance
   const handleBatchDelete = async () => {
-    if (!canEdit() || selectedTransactions.length === 0) return;
+    if (!canEdit() || selectedTransactions.length === 0) {
+      return;
+    }
 
     if (!window.confirm(`Are you sure you want to delete ${selectedTransactions.length} selected transactions?`)) {
       return;
     }
 
     try {
-      setError("");
-      
-      // Process deletions in batches of 500 (Firestore batch limit)
-      const BATCH_SIZE = 500;
-      const batches = [];
-      
-      for (let i = 0; i < selectedTransactions.length; i += BATCH_SIZE) {
+      const batchSize = 500;
+
+      for (let index = 0; index < selectedTransactions.length; index += batchSize) {
         const batch = writeBatch(db);
-        const batchTransactionIds = selectedTransactions.slice(i, i + BATCH_SIZE);
-        
-        batchTransactionIds.forEach(transactionId => {
-          const transactionRef = doc(db, "ledgers", currentLedger.id, "transactions", transactionId);
-          batch.delete(transactionRef);
+
+        selectedTransactions.slice(index, index + batchSize).forEach((transactionId) => {
+          batch.delete(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId));
         });
-        
-        batches.push(batch);
-      }
-      
-      // Execute all batches
-      for (const batch of batches) {
+
         await batch.commit();
       }
 
       setSuccess(`Deleted ${selectedTransactions.length} transactions`);
       setSelectedTransactions([]);
       await fetchTransactions();
-    } catch (error) {
-      console.error("Error batch deleting transactions:", error);
-      setError("Failed to delete transactions");
+    } catch (batchDeleteError) {
+      console.error('Error batch deleting transactions:', batchDeleteError);
+      setError('Failed to delete selected transactions');
     }
   };
 
-  // Handle batch edit with batch writes for better performance
   const handleBatchEdit = async () => {
-    if (!canEdit() || selectedTransactions.length === 0) return;
+    if (!canEdit() || selectedTransactions.length === 0) {
+      return;
+    }
 
     try {
-      setError('');
       const updates = {};
-      if (batchEditData.categoryId) updates.categoryId = batchEditData.categoryId;
-      if (batchEditData.includeInBudget !== null) updates.includeInBudget = batchEditData.includeInBudget;
 
-      // Process updates in batches of 500 (Firestore batch limit)
-      const BATCH_SIZE = 500;
-      const batches = [];
-      
-      for (let i = 0; i < selectedTransactions.length; i += BATCH_SIZE) {
-        const batch = writeBatch(db);
-        const batchTransactionIds = selectedTransactions.slice(i, i + BATCH_SIZE);
-        
-        batchTransactionIds.forEach(transactionId => {
-          const transactionRef = doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId);
-          batch.update(transactionRef, updates);
-        });
-        
-        batches.push(batch);
+      if (batchEditData.categoryId) {
+        updates.categoryId = batchEditData.categoryId;
       }
-      
-      // Execute all batches
-      for (const batch of batches) {
+
+      if (batchEditData.includeInBudget !== null) {
+        updates.includeInBudget = batchEditData.includeInBudget;
+      }
+
+      const batchSize = 500;
+
+      for (let index = 0; index < selectedTransactions.length; index += batchSize) {
+        const batch = writeBatch(db);
+
+        selectedTransactions.slice(index, index + batchSize).forEach((transactionId) => {
+          batch.update(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId), updates);
+        });
+
         await batch.commit();
       }
 
       setSuccess(`Updated ${selectedTransactions.length} transactions`);
       setSelectedTransactions([]);
       setShowBatchEdit(false);
-      setBatchEditData({ categoryId: '', includeInBudget: null });
+      setBatchEditData(createDefaultBatchEditState());
       await fetchTransactions();
-    } catch (error) {
-      console.error('Error batch updating transactions:', error);
-      setError('Failed to update transactions');
+    } catch (batchEditError) {
+      console.error('Error batch updating transactions:', batchEditError);
+      setError('Failed to update selected transactions');
     }
   };
 
-  // Handle edit
   const handleEdit = (transaction) => {
+    const normalizedTransaction = normalizeTransactionForEdit(transaction);
     setEditingTransaction(transaction);
-    setIsEditing(true);
-    setEditingId(transaction.id);
     setShowAddForm(true);
-    setFormData({
-      ...transaction,
-      date: transaction.date instanceof Date ? transaction.date.toISOString().split('T')[0] : transaction.date,
-      splitWith: transaction.splitWith || [], // Ensure splitWith is an array
-      splitAmounts: transaction.splitAmounts || {},
-    });
-    // Set splitMode based on the loaded transaction
-    const allOtherMembers = members.filter(m => m.uid !== currentUser?.uid);
-    const allOtherMemberIds = allOtherMembers.map(m => m.uid);
-    if (transaction.splitWith.length === 0) {
-      setSplitMode('none');
-    } else if (transaction.splitWith.length === allOtherMemberIds.length && 
-               allOtherMemberIds.every(id => transaction.splitWith.includes(id))) {
-      setSplitMode('everyone');
-    } else {
-      setSplitMode('individuals');
-    }
+    setFormData(normalizedTransaction);
+    setSplitMode(getSplitMode(normalizedTransaction.splitWith, members, normalizedTransaction.paidBy));
   };
 
-  // Toggle transaction selection
+  const handleOpenAddForm = () => {
+    resetForm();
+    setShowAddForm(true);
+  };
+
+  const handleCancelForm = () => {
+    setShowAddForm(false);
+    resetForm();
+  };
+
   const toggleTransactionSelection = (transactionId) => {
-    setSelectedTransactions(prev => 
-      prev.includes(transactionId) 
-        ? prev.filter(id => id !== transactionId)
-        : [...prev, transactionId]
+    setSelectedTransactions((previous) =>
+      previous.includes(transactionId)
+        ? previous.filter((id) => id !== transactionId)
+        : [...previous, transactionId]
     );
   };
 
-  // Select all transactions
   const selectAllTransactions = () => {
-    if (selectedTransactions.length === transactions.length) {
-      setSelectedTransactions([]);
-    } else {
-      setSelectedTransactions(transactions.map(t => t.id));
-    }
-  };
-
-  // Splitting helper functions
-  const handleSplitTypeChange = (splitType) => {
-    setFormData(prev => ({
-      ...prev,
-      splitType,
-      splitWith: splitType === 'none' ? [] : prev.splitWith,
-      splitAmounts: splitType === 'none' ? {} : prev.splitAmounts
-    }));
-  };
-
-  const handleSplitWithEveryone = () => {
-    const allMemberIds = members.filter(m => m.uid !== currentUser?.uid).map(m => m.uid);
-    setFormData(prev => ({
-      ...prev,
-      splitType: 'equal',
-      splitWith: allMemberIds
-    }));
-  };
-
-  // CRITICAL FIX: Safe member toggle with proper array handling
-  const handleSplitWithToggle = (userId) => {
-    setFormData(prev => {
-      // DEFENSIVE PROGRAMMING: Ensure splitWith is always an array
-      const currentSplitWith = prev.splitWith || []; // Safe default
-      const newSplitWith = currentSplitWith.includes(userId)
-        ? currentSplitWith.filter(id => id !== userId)
-        : [...currentSplitWith, userId];
-      
-      // CRITICAL FIX: Use setTimeout to prevent infinite loops
-      setTimeout(() => {
-        updateSplitModeBasedOnSelection(newSplitWith);
-      }, 0);
-      
-      return {
-        ...prev,
-        splitWith: newSplitWith,
-        splitType: newSplitWith.length > 0 ? 'equal' : 'none'
-      };
-    });
-  };
-
-  // New split mode handlers
-  const handleSplitModeChange = (mode) => {
-    setSplitMode(mode);
-    
-    if (mode === 'none') {
-      setFormData(prev => ({
-        ...prev,
-        splitType: 'none',
-        splitWith: []
-      }));
-    } else if (mode === 'everyone') {
-      const allMemberIds = members.filter(m => m.uid !== currentUser?.uid).map(m => m.uid);
-      setFormData(prev => ({
-        ...prev,
-        splitType: 'equal',
-        splitWith: allMemberIds
-      }));
-    } else if (mode === 'individuals') {
-      // Keep current selection but ensure splitType is set
-      setFormData(prev => ({
-        ...prev,
-        splitType: prev.splitWith && prev.splitWith.length > 0 ? 'equal' : 'none'
-      }));
-    }
-  };
-
-  // CRITICAL FIX: Intelligent auto-adjustment logic
-  const updateSplitModeBasedOnSelection = (splitWith) => {
-    const allOtherMembers = members.filter(m => m.uid !== currentUser?.uid);
-    const allOtherMemberIds = allOtherMembers.map(m => m.uid);
-    
-    if (splitWith.length === 0) {
-      setSplitMode('none');
-    } else if (splitWith.length === allOtherMemberIds.length && 
-               allOtherMemberIds.every(id => splitWith.includes(id))) {
-      setSplitMode('everyone');
-    } else {
-      setSplitMode('individuals');
-    }
+    setSelectedTransactions((previous) =>
+      previous.length === transactions.length ? [] : transactions.map((transaction) => transaction.id)
+    );
   };
 
   const isMultiMemberLedger = members.length > 1;
-
-  useEffect(() => {
-    if (currentLedger) {
-      Promise.all([fetchTransactions(), fetchCategories(), fetchMembers()]).finally(() => setLoading(false));
-    }
-  }, [currentLedger]);
-
-  // Update form data when current user changes
-  useEffect(() => {
-    if (currentUser) {
-      setFormData(prev => ({
-        ...prev,
-        paidBy: currentUser.uid
-      }));
-    }
-  }, [currentUser]);
 
   if (loading) {
     return <div className="p-6">Loading transactions...</div>;
@@ -549,20 +401,15 @@ export default function TransactionManagement() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
-        <div className="flex space-x-2">
-          {canEdit() && (
-            <Button
-              onClick={() => setShowAddForm(true)}
-              className="flex items-center space-x-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Transaction</span>
-            </Button>
-          )}
-        </div>
+        {canEdit() && (
+          <Button onClick={handleOpenAddForm} className="flex items-center space-x-2">
+            <Plus className="h-4 w-4" />
+            <span>Add Transaction</span>
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -577,409 +424,49 @@ export default function TransactionManagement() {
         </Alert>
       )}
 
-      {/* Add/Edit Transaction Form */}
-      {(showAddForm || editingTransaction) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="amount">Amount</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    step="0.01"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="type">Type</Label>
-                  <Select value={formData.type} onValueChange={(value) => setFormData({ ...formData, type: value })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="expense">Expense</SelectItem>
-                      <SelectItem value="income">Income</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="description">Description</Label>
-                  <Input
-                    id="description"
-                    type="text"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={formData.categoryId}
-                    onValueChange={(value) => setFormData({ ...formData, categoryId: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories
-                        .filter(category => category.type === formData.type)
-                        .map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="date">Date</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="paymentMethod">Payment Method</Label>
-                  <Input
-                    id="paymentMethod"
-                    type="text"
-                    value={formData.paymentMethod}
-                    onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  />
-                </div>
-                <div className="md:col-span-2 flex items-center space-x-2">
-                  <Checkbox
-                    id="includeInBudget"
-                    checked={formData.includeInBudget}
-                    onCheckedChange={(checked) => setFormData({ ...formData, includeInBudget: checked })}
-                  />
-                  <Label htmlFor="includeInBudget">Include in Budget</Label>
-                </div>
-              </div>
-
-              {/* Splitting Section */}
-              {isMultiMemberLedger && formData.type === 'expense' && (
-                <div className="space-y-4 border p-4 rounded-md">
-                  <h3 className="text-lg font-semibold">Split Expense</h3>
-                  
-                  {/* Paid By */}
-                  <div>
-                    <Label htmlFor="paidBy">Paid By</Label>
-                    <Select
-                      value={formData.paidBy}
-                      onValueChange={(value) => setFormData({ ...formData, paidBy: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select payer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {members.map(member => (
-                          <SelectItem key={member.uid} value={member.uid}>
-                            <ProfileImageWithName user={member} />
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Split Type Buttons */}
-                  <div className="flex space-x-2">
-                    <Button
-                      type="button"
-                      variant={splitMode === 'none' ? 'default' : 'outline'}
-                      onClick={() => handleSplitModeChange('none')}
-                    >
-                      Don't Split
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={splitMode === 'everyone' ? 'default' : 'outline'}
-                      onClick={() => handleSplitModeChange('everyone')}
-                    >
-                      Split Equally (Everyone Else)
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={splitMode === 'individuals' ? 'default' : 'outline'}
-                      onClick={() => handleSplitModeChange('individuals')}
-                    >
-                      Split with Individuals
-                    </Button>
-                  </div>
-
-                  {/* Individual Selection for Splitting */}
-                  {splitMode === 'individuals' && (
-                    <div className="space-y-2">
-                      <Label>Select Members to Split With:</Label>
-                      {members.filter(member => member.uid !== formData.paidBy).map(member => (
-                        <div key={member.uid} className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`split-with-${member.uid}`}
-                            checked={(formData.splitWith || []).includes(member.uid)}
-                            onCheckedChange={() => handleSplitWithToggle(member.uid)}
-                          />
-                          <Label htmlFor={`split-with-${member.uid}`}>
-                            <ProfileImageWithName user={member} />
-                          </Label>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Display calculated split amounts */}
-                  {(formData.splitType === 'equal' && (formData.splitWith || []).length > 0) && (
-                    <div className="border-t pt-4 mt-4">
-                      <h4 className="font-semibold">Split Details:</h4>
-                      <p>Total Amount: {formatCurrency(formData.amount || 0, currentLedger?.currency)}</p>
-                      <p>Paid By: <ProfileImageWithName user={members.find(m => m.uid === formData.paidBy)} /></p>
-                      <p>Splitting with {(formData.splitWith || []).length} other(s):</p>
-                      <ul>
-                                        {(formData.splitWith || []).map(memberId => {
-                          const member = members.find(m => m.uid === memberId);
-                          const perPersonAmount = formatCurrency(formData.amount / ((formData.splitWith || []).length + 1), currentLedger?.currency);
-                          return (
-                            <li key={memberId}>- <ProfileImageWithName user={member} />: {perPersonAmount}</li>
-                          );
-                        })}
-                        <li>- <ProfileImageWithName user={members.find(m => m.uid === formData.paidBy)} /> (Payer): {formatCurrency(formData.amount - ((formData.splitWith || []).length * (formData.amount / ((formData.splitWith || []).length + 1))), currentLedger?.currency)}</li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => {
-                  setShowAddForm(false);
-                  resetForm();
-                }}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {editingTransaction ? 'Update Transaction' : 'Add Transaction'}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+      {showAddForm && (
+        <TransactionForm
+          formData={formData}
+          setFormData={setFormData}
+          categories={categories}
+          members={members}
+          splitMode={splitMode}
+          setSplitMode={setSplitMode}
+          currentLedger={currentLedger}
+          editingTransaction={editingTransaction}
+          isMultiMemberLedger={isMultiMemberLedger}
+          onSubmit={handleSubmit}
+          onCancel={handleCancelForm}
+        />
       )}
 
-      {/* Batch Edit Modal */}
       {showBatchEdit && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Batch Edit Transactions</CardTitle>
-            <CardDescription>Edit {selectedTransactions.length} selected transactions</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="batchCategory">Category</Label>
-                <Select
-                  value={batchEditData.categoryId}
-                  onValueChange={(value) => setBatchEditData({ ...batchEditData, categoryId: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="batchIncludeInBudget"
-                  checked={batchEditData.includeInBudget === true}
-                  onCheckedChange={(checked) => setBatchEditData({ ...batchEditData, includeInBudget: checked })}
-                />
-                <Label htmlFor="batchIncludeInBudget">Include in Budget</Label>
-              </div>
-              <div className="flex justify-end space-x-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setShowBatchEdit(false);
-                    setBatchEditData({ categoryId: '', includeInBudget: null });
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleBatchEdit}>
-                  Update {selectedTransactions.length} Transactions
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <TransactionBatchEdit
+          selectedCount={selectedTransactions.length}
+          batchEditData={batchEditData}
+          setBatchEditData={setBatchEditData}
+          categories={categories}
+          onCancel={() => {
+            setShowBatchEdit(false);
+            setBatchEditData(createDefaultBatchEditState());
+          }}
+          onSubmit={handleBatchEdit}
+        />
       )}
 
-      {/* Transactions List */}
-      <Card>
-        <CardHeader>
-          <CardTitle>All Transactions</CardTitle>
-          <CardDescription>Manage your ledger's financial records.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {/* Batch Controls */}
-            <div className="flex justify-between items-center">
-              <Button
-                variant="outline"
-                onClick={selectAllTransactions}
-              >
-                {selectedTransactions.length === transactions.length ? 'Deselect All' : 'Select All'}
-              </Button>
-              {selectedTransactions.length > 0 && (
-                <div className="flex space-x-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowBatchEdit(true)}
-                    className="flex items-center space-x-2"
-                  >
-                    <Edit className="h-4 w-4" />
-                    <span>Batch Edit ({selectedTransactions.length})</span>
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={handleBatchDelete}
-                  >
-                    Delete Selected ({selectedTransactions.length})
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {/* Transactions with Month Dividers */}
-            {transactions.length === 0 ? (
-              <p>No transactions found. Add one above!</p>
-            ) : (
-              <div className="space-y-4">
-                {(() => {
-                  // Group transactions by month
-                  const groupedTransactions = {};
-                  transactions.forEach(transaction => {
-                    const date = new Date(transaction.date);
-                    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                    if (!groupedTransactions[monthKey]) {
-                      groupedTransactions[monthKey] = [];
-                    }
-                    groupedTransactions[monthKey].push(transaction);
-                  });
-
-                  // Sort month keys in descending order
-                  const sortedMonthKeys = Object.keys(groupedTransactions).sort((a, b) => b.localeCompare(a));
-
-                  return sortedMonthKeys.map(monthKey => {
-                    const monthTransactions = groupedTransactions[monthKey];
-                    const [year, month] = monthKey.split('-');
-                    const monthName = new Date(year, month - 1).toLocaleDateString('en-US', { 
-                      year: 'numeric', 
-                      month: 'long' 
-                    });
-
-                    return (
-                      <div key={monthKey}>
-                        {/* Month Divider */}
-                        <div className="flex items-center my-6">
-                          <div className="flex-grow border-t border-gray-300"></div>
-                          <div className="mx-4 px-3 py-1 bg-gray-100 text-gray-600 text-sm font-medium rounded-full">
-                            {monthName}
-                          </div>
-                          <div className="flex-grow border-t border-gray-300"></div>
-                        </div>
-
-                        {/* Transactions for this month */}
-                        <div className="space-y-3">
-                          {monthTransactions.map((transaction) => {
-                            const category = categories.find(cat => cat.id === transaction.categoryId);
-                            const payer = members.find(m => m.uid === transaction.paidBy);
-                            const splitMembers = members.filter(m => (transaction.splitWith || []).includes(m.uid));
-
-                            return (
-                              <div key={transaction.id} className="border p-4 rounded-md shadow-sm flex justify-between items-center">
-                                <div className="flex items-center space-x-3 flex-1">
-                                  <Checkbox
-                                    checked={selectedTransactions.includes(transaction.id)}
-                                    onCheckedChange={() => toggleTransactionSelection(transaction.id)}
-                                  />
-                                  <div className="flex-1">
-                                    <div className="flex justify-between items-start">
-                                      <div>
-                                        <p className={`font-semibold ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                          {transaction.description}
-                                        </p>
-                                        <p className="text-sm text-gray-500">{category?.name} | {new Date(transaction.date).toLocaleDateString()}</p>
-                                        {/* Show paid by/paid to information */}
-                                        {transaction.type === 'expense' && transaction.splitType !== 'none' && (
-                                          <p className="text-sm text-gray-500">
-                                            Paid by: <ProfileImageWithName user={payer} />
-                                            {(transaction.splitWith || []).length > 0 && (
-                                              <span>
-                                                , Split with: {splitMembers.map(m => m.displayName || m.email).join(', ')}
-                                              </span>
-                                            )}
-                                          </p>
-                                        )}
-                                        {transaction.type === 'income' && (
-                                          <p className="text-sm text-gray-500">
-                                            Paid to: <ProfileImageWithName user={payer} />
-                                          </p>
-                                        )}
-                                      </div>
-                                      <div className="text-right">
-                                        <p className={`font-semibold text-lg ${transaction.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                          {formatCurrencyWithSign(transaction.amount, currentLedger?.currency, transaction.type === 'income')}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="flex space-x-2 ml-4">
-                                  <Button variant="outline" size="sm" onClick={() => handleEdit(transaction)}>
-                                    <Edit className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="destructive" size="sm" onClick={() => handleDelete(transaction.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <TransactionList
+        transactions={transactions}
+        categories={categories}
+        members={members}
+        selectedTransactions={selectedTransactions}
+        currentLedger={currentLedger}
+        onToggleSelection={toggleTransactionSelection}
+        onSelectAll={selectAllTransactions}
+        onShowBatchEdit={() => setShowBatchEdit(true)}
+        onBatchDelete={handleBatchDelete}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+      />
     </div>
   );
 }

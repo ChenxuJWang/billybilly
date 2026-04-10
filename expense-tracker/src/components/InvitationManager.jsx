@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
@@ -16,7 +16,6 @@ import {
   getDocs, 
   doc, 
   updateDoc, 
-  deleteDoc, 
   query, 
   where,
   orderBy
@@ -34,7 +33,7 @@ export default function InvitationManager() {
   const [success, setSuccess] = useState('');
 
   // Fetch pending invitations for current user
-  const fetchInvitations = async () => {
+  const fetchInvitations = useCallback(async () => {
     if (!currentUser) return;
 
     try {
@@ -68,7 +67,7 @@ export default function InvitationManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser]);
 
   // Accept invitation
   const acceptInvitation = async (invitation) => {
@@ -137,7 +136,7 @@ export default function InvitationManager() {
 
   useEffect(() => {
     fetchInvitations();
-  }, [currentUser]);
+  }, [fetchInvitations]);
 
   useEffect(() => {
     if (success || error) {
@@ -240,4 +239,3 @@ export default function InvitationManager() {
     </div>
   );
 }
-

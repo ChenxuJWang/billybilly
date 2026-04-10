@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
   updateProfile
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, addDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, addDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
 const AuthContext = createContext();
@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
         });
 
         // Create a default ledger for the new user
-        const defaultLedger = await addDoc(collection(db, 'ledgers'), {
+        await addDoc(collection(db, 'ledgers'), {
           name: 'Personal Expenses',
           ownerId: result.user.uid,
           createdAt: new Date(),
@@ -85,4 +85,3 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
-
