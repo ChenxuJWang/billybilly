@@ -1,0 +1,691 @@
+const createId = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+
+export const INTERNAL_TRANSACTION_TYPES = ['Income', 'Expense', 'Neutral'];
+
+export const INTERNAL_TRANSACTION_TYPE_OPTIONS = INTERNAL_TRANSACTION_TYPES.map((type) => ({
+  value: type,
+  label: type,
+}));
+
+export const REQUIRED_FIELDS = [
+  { key: 'transactionTime', label: 'Transaction time' },
+  { key: 'transactionCategory', label: 'Transaction category' },
+  { key: 'transactionType', label: 'Transaction type' },
+  { key: 'counterpartName', label: 'Counterpart name' },
+  { key: 'description', label: 'Description' },
+  { key: 'amount', label: 'Amount' },
+  { key: 'source', label: 'Source' },
+  { key: 'transactionStatus', label: 'Transaction status' },
+];
+
+export const FIELD_OPTIONS = REQUIRED_FIELDS.map((field) => ({
+  value: field.key,
+  label: field.label,
+}));
+
+export const MATCHER_OPTIONS = [
+  { value: 'contains', label: 'Contains' },
+  { value: 'containsAll', label: 'Keyword AND' },
+  { value: 'containsAny', label: 'Keyword OR' },
+  { value: 'exact', label: 'Exact match' },
+  { value: 'wildcard', label: 'Wildcard (* ?)' },
+  { value: 'regex', label: 'Regex' },
+];
+
+export const RULE_LOGIC_OPTIONS = [
+  { value: 'all', label: 'All conditions must match' },
+  { value: 'any', label: 'Any condition can match' },
+];
+
+export const DEFAULT_CATEGORIES = [
+  'Uncategorized',
+  'Food',
+  'Transport',
+  'Everyday Item',
+  'Shopping',
+  'Bills & Utilities',
+  'Entertainment',
+  'Healthcare',
+  'Housing',
+  'Travel',
+  'Income',
+  'Refund',
+  'Transfer',
+  'Other',
+];
+
+export const DEFAULT_BILL_CONFIGS = [
+  {
+    id: 'wechat',
+    name: 'WeChat Pay',
+    encoding: 'utf-8',
+    headerLineNumber: 17,
+    mappings: {
+      transactionTime: '交易时间',
+      transactionCategory: '交易类型',
+      transactionType: '收/支',
+      counterpartName: '交易对方',
+      description: '商品',
+      amount: '金额(元)',
+      source: '支付方式',
+      transactionStatus: '当前状态',
+    },
+    categoryMappings: [
+      { id: createId('catmap'), source: '转账', target: 'Transfer' },
+      { id: createId('catmap'), source: '零钱提现', target: 'Transfer' },
+      { id: createId('catmap'), source: '退款', target: 'Refund' },
+      { id: createId('catmap'), source: '商户消费', target: 'Uncategorized' },
+      { id: createId('catmap'), source: '扫二维码付款', target: 'Uncategorized' },
+    ],
+    transactionTypeMappings: {
+      income: '收入',
+      expense: '支出',
+    },
+  },
+  {
+    id: 'alipay',
+    name: 'Alipay',
+    encoding: 'gb2312',
+    headerLineNumber: 25,
+    mappings: {
+      transactionTime: '交易时间',
+      transactionCategory: '交易分类',
+      transactionType: '收/支',
+      counterpartName: '交易对方',
+      description: '商品说明',
+      amount: '金额',
+      source: '收/付款方式',
+      transactionStatus: '交易状态',
+    },
+    categoryMappings: [
+      { id: createId('catmap'), source: '餐饮美食', target: 'Food' },
+      { id: createId('catmap'), source: '交通出行', target: 'Transport' },
+      { id: createId('catmap'), source: '日用百货', target: 'Everyday Item' },
+      { id: createId('catmap'), source: '文化休闲', target: 'Entertainment' },
+      { id: createId('catmap'), source: '充值缴费', target: 'Bills & Utilities' },
+      { id: createId('catmap'), source: '酒店旅游', target: 'Travel' },
+      { id: createId('catmap'), source: '退款', target: 'Refund' },
+      { id: createId('catmap'), source: '其他', target: 'Other' },
+    ],
+    transactionTypeMappings: {
+      income: '收入',
+      expense: '支出',
+    },
+  },
+];
+
+export const DEFAULT_RULES = [
+  {
+    id: createId('rule'),
+    name: 'Meituan bike rides',
+    category: 'Transport',
+    transactionType: 'Expense',
+    scope: 'all',
+    enabled: true,
+    logic: 'all',
+    notes: 'Starter example: bike rental on Meituan should not become Food.',
+    conditions: [
+      { id: createId('cond'), field: 'counterpartName', matcher: 'contains', pattern: '美团' },
+      { id: createId('cond'), field: 'description', matcher: 'contains', pattern: '先骑后付' },
+    ],
+  },
+  {
+    id: createId('rule'),
+    name: 'Meituan ride hailing',
+    category: 'Transport',
+    transactionType: 'Expense',
+    scope: 'all',
+    enabled: true,
+    logic: 'all',
+    notes: 'Starter example: ride-hailing patterns sold through Meituan.',
+    conditions: [
+      { id: createId('cond'), field: 'counterpartName', matcher: 'contains', pattern: '美团' },
+      {
+        id: createId('cond'),
+        field: 'description',
+        matcher: 'containsAny',
+        pattern: '曹操惠选,享道经济型,T3特惠',
+      },
+    ],
+  },
+  {
+    id: createId('rule'),
+    name: 'Powerbank rental',
+    category: 'Everyday Item',
+    transactionType: 'Expense',
+    scope: 'all',
+    enabled: true,
+    logic: 'any',
+    notes: 'Starter example: battery or powerbank rental should not inherit the platform category.',
+    conditions: [
+      { id: createId('cond'), field: 'description', matcher: 'containsAny', pattern: '充电宝,共享充电宝,免押租借' },
+    ],
+  },
+];
+
+export const createEmptyBillConfig = (name = 'Custom bill type') => ({
+  id: createId('bill'),
+  name,
+  encoding: 'utf-8',
+  headerLineNumber: 1,
+  mappings: REQUIRED_FIELDS.reduce((result, field) => {
+    result[field.key] = '';
+    return result;
+  }, {}),
+  categoryMappings: [],
+  transactionTypeMappings: {
+    income: '',
+    expense: '',
+  },
+});
+
+export const createEmptyRuleDraft = (scope = 'all') => ({
+  id: null,
+  name: '',
+  category: 'Uncategorized',
+  transactionType: 'Expense',
+  scope,
+  enabled: true,
+  logic: 'all',
+  notes: '',
+  sampleFields: null,
+  sourceTransactionId: null,
+  autofillField: 'description',
+  conditions: [
+    {
+      id: createId('cond'),
+      field: 'description',
+      matcher: 'contains',
+      pattern: '',
+    },
+  ],
+});
+
+export const createRuleDraftFromTransaction = (
+  transaction,
+  scope = 'all',
+  categoryOverride = null,
+  preferredField = null
+) => {
+  const autofillField = preferredField || (transaction.counterpartName ? 'counterpartName' : 'description');
+  const sampleFields = {
+    transactionTime: transaction.transactionTime,
+    transactionCategory: transaction.transactionCategory,
+    transactionType: transaction.transactionType,
+    counterpartName: transaction.counterpartName,
+    description: transaction.description,
+    amount: transaction.amountRaw,
+    source: transaction.source,
+    transactionStatus: transaction.transactionStatus,
+  };
+
+  return {
+    id: null,
+    name: `${categoryOverride || transaction.finalCategory || 'New'} rule from row ${transaction.rowNumber}`,
+    category: categoryOverride || transaction.finalCategory || 'Uncategorized',
+    transactionType: transaction.internalTransactionType || 'Expense',
+    scope,
+    enabled: true,
+    logic: 'all',
+    notes: `Created from row ${transaction.rowNumber} in ${transaction.billTypeName}.`,
+    sampleFields,
+    sourceTransactionId: transaction.id,
+    autofillField,
+    conditions: [
+      {
+        id: createId('cond'),
+        field: autofillField,
+        matcher: 'contains',
+        pattern: sampleFields[autofillField] || '',
+      },
+    ],
+  };
+};
+
+export const normalizeText = (value) =>
+  String(value || '')
+    .replace(/\uFEFF/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+const getTerms = (pattern) =>
+  String(pattern || '')
+    .split(/[\n,|]+/)
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+
+const splitAndTerms = (pattern) => {
+  const terms = getTerms(pattern);
+
+  return {
+    positive: terms.filter((term) => !term.startsWith('!')),
+    negative: terms.filter((term) => term.startsWith('!')).map((term) => term.slice(1)).filter(Boolean),
+  };
+};
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const getMatcherDetail = (matcher, pattern, matchedTerms = []) => {
+  switch (matcher) {
+    case 'containsAny':
+      return matchedTerms.length > 0 ? matchedTerms.join(', ') : pattern;
+    case 'containsAll':
+      return matchedTerms.length > 0 ? matchedTerms.join(', ') : pattern;
+    default:
+      return pattern;
+  }
+};
+
+const evaluateCondition = (value, matcher, pattern) => {
+  const rawValue = String(value || '');
+  const normalizedValue = normalizeText(rawValue);
+  const normalizedPattern = normalizeText(pattern);
+
+  if (!normalizedValue || !normalizedPattern) {
+    return {
+      matched: false,
+      detail: '',
+    };
+  }
+
+  switch (matcher) {
+    case 'exact':
+      return {
+        matched: normalizedValue === normalizedPattern,
+        detail: pattern,
+      };
+    case 'contains':
+      return {
+        matched: normalizedValue.includes(normalizedPattern),
+        detail: pattern,
+      };
+    case 'containsAll': {
+      const { positive, negative } = splitAndTerms(pattern);
+      const matchedPositiveTerms = positive.filter((term) => normalizedValue.includes(term));
+      const blockedNegativeTerms = negative.filter((term) => normalizedValue.includes(term));
+      const positiveMatched = positive.length > 0 && matchedPositiveTerms.length === positive.length;
+      const negativeMatched = blockedNegativeTerms.length === 0;
+      const matched = positiveMatched && negativeMatched;
+      return {
+        matched,
+        detail: matched
+          ? [
+              ...matchedPositiveTerms,
+              ...negative.map((term) => `!${term}`),
+            ].join(', ')
+          : '',
+      };
+    }
+    case 'containsAny': {
+      const terms = getTerms(pattern);
+      const matchedTerms = terms.filter((term) => normalizedValue.includes(term));
+      return {
+        matched: matchedTerms.length > 0,
+        detail: getMatcherDetail(matcher, pattern, matchedTerms),
+      };
+    }
+    case 'wildcard': {
+      const regex = new RegExp(
+        `^${escapeRegex(normalizedPattern).replace(/\\\*/g, '.*').replace(/\\\?/g, '.')}$`,
+        'i'
+      );
+      return {
+        matched: regex.test(normalizedValue),
+        detail: pattern,
+      };
+    }
+    case 'regex':
+      try {
+        return {
+          matched: new RegExp(pattern, 'i').test(rawValue),
+          detail: pattern,
+        };
+      } catch {
+        return {
+          matched: false,
+          detail: '',
+        };
+      }
+    default:
+      return {
+        matched: false,
+        detail: '',
+      };
+  }
+};
+
+const getCellValue = (row, index) => (index > -1 ? String(row[index] || '').trim() : '');
+
+const parseAmount = (value) => {
+  const cleaned = String(value || '')
+    .replace(/[¥￥,\s]/g, '')
+    .replace(/[^\d.-]/g, '');
+
+  if (!cleaned) {
+    return null;
+  }
+
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+export const parseCsvLine = (line) => {
+  const values = [];
+  let current = '';
+  let inQuotes = false;
+  const safeLine = String(line || '').replace(/\r$/, '');
+
+  for (let index = 0; index < safeLine.length; index += 1) {
+    const char = safeLine[index];
+    const nextChar = safeLine[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        current += '"';
+        index += 1;
+        continue;
+      }
+
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      values.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+
+  return values.map((value, index) => (index === 0 ? value.replace(/^\uFEFF/, '') : value));
+};
+
+const getUniqueHeaders = (headers) => {
+  const seen = {};
+
+  return headers.map((header, index) => {
+    const base = String(header || '').trim() || `Column ${index + 1}`;
+    const count = (seen[base] || 0) + 1;
+    seen[base] = count;
+    return count > 1 ? `${base} (${count})` : base;
+  });
+};
+
+export const parseBillText = (text, config) => {
+  const lines = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n');
+
+  const headerIndex = Math.max(0, Number.parseInt(config?.headerLineNumber, 10) - 1 || 0);
+  const headerValues = parseCsvLine(lines[headerIndex] || '');
+  const headers = getUniqueHeaders(headerValues);
+
+  const fieldIndexes = REQUIRED_FIELDS.reduce((result, field) => {
+    result[field.key] = headers.findIndex((header) => header === config?.mappings?.[field.key]);
+    return result;
+  }, {});
+
+  const missingMappings = REQUIRED_FIELDS.filter((field) => fieldIndexes[field.key] === -1).map(
+    (field) => field.label
+  );
+
+  const transactions = [];
+
+  for (let lineIndex = headerIndex + 1; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex];
+
+    if (!rawLine || !rawLine.trim()) {
+      continue;
+    }
+
+    const row = parseCsvLine(rawLine);
+    const hasMappedValue = Object.values(fieldIndexes).some((index) => {
+      const value = getCellValue(row, index);
+      return Boolean(value);
+    });
+
+    if (!hasMappedValue) {
+      continue;
+    }
+
+    const amountRaw = getCellValue(row, fieldIndexes.amount);
+    const transactionCategory = getCellValue(row, fieldIndexes.transactionCategory);
+    const rawTransactionType = getCellValue(row, fieldIndexes.transactionType);
+    const transaction = {
+      id: `tx-${lineIndex + 1}`,
+      rowNumber: lineIndex + 1,
+      billTypeId: config.id,
+      billTypeName: config.name,
+      transactionTime: getCellValue(row, fieldIndexes.transactionTime),
+      transactionCategory,
+      transactionType: rawTransactionType,
+      counterpartName: getCellValue(row, fieldIndexes.counterpartName),
+      description: getCellValue(row, fieldIndexes.description),
+      amountRaw,
+      amount: parseAmount(amountRaw),
+      source: getCellValue(row, fieldIndexes.source),
+      transactionStatus: getCellValue(row, fieldIndexes.transactionStatus),
+      mappedBillCategory: mapBillCategory(transactionCategory, config?.categoryMappings),
+      internalTransactionType: mapTransactionType(rawTransactionType, config?.transactionTypeMappings),
+      rawLine,
+    };
+
+    if (!transaction.transactionTime && !transaction.description && !transaction.counterpartName) {
+      continue;
+    }
+
+    transactions.push(transaction);
+  }
+
+  return {
+    headers,
+    fieldIndexes,
+    missingMappings,
+    transactions,
+  };
+};
+
+export const mapBillCategory = (rawCategory, categoryMappings = []) => {
+  const normalizedSource = normalizeText(rawCategory);
+
+  if (!normalizedSource) {
+    return '';
+  }
+
+  const matchedMapping = (categoryMappings || []).find(
+    (mapping) => normalizeText(mapping.source) === normalizedSource
+  );
+
+  return matchedMapping?.target || '';
+};
+
+export const mapTransactionType = (rawTransactionType, transactionTypeMappings = {}) => {
+  const normalizedType = normalizeText(rawTransactionType);
+
+  if (!normalizedType) {
+    return 'Neutral';
+  }
+
+  if (normalizeText(transactionTypeMappings?.income) === normalizedType) {
+    return 'Income';
+  }
+
+  if (normalizeText(transactionTypeMappings?.expense) === normalizedType) {
+    return 'Expense';
+  }
+
+  return 'Neutral';
+};
+
+const matchesRule = (transaction, rule) => {
+  if (!rule?.enabled) {
+    return {
+      matched: false,
+      matchedConditions: [],
+    };
+  }
+
+  if (rule.scope && rule.scope !== 'all' && rule.scope !== transaction.billTypeId) {
+    return {
+      matched: false,
+      matchedConditions: [],
+    };
+  }
+
+  if (rule.transactionType !== transaction.internalTransactionType) {
+    return {
+      matched: false,
+      matchedConditions: [],
+    };
+  }
+
+  const conditions = Array.isArray(rule.conditions) ? rule.conditions : [];
+
+  if (conditions.length === 0) {
+    return {
+      matched: false,
+      matchedConditions: [],
+    };
+  }
+
+  const evaluations = conditions.map((condition) => {
+    const result = evaluateCondition(transaction[condition.field], condition.matcher, condition.pattern);
+    return {
+      condition,
+      ...result,
+    };
+  });
+
+  const matched = rule.logic === 'any'
+    ? evaluations.some((evaluation) => evaluation.matched)
+    : evaluations.every((evaluation) => evaluation.matched);
+
+  return {
+    matched,
+    matchedConditions: evaluations.filter((evaluation) => evaluation.matched).map((evaluation) => ({
+      id: evaluation.condition.id,
+      field: evaluation.condition.field,
+      matcher: evaluation.condition.matcher,
+      pattern: evaluation.condition.pattern,
+      detail: evaluation.detail,
+    })),
+  };
+};
+
+export const applyRulesToTransactions = (transactions, rules, manualCategories = {}) => {
+  const hitCounts = {};
+
+  const reviewedTransactions = (transactions || []).map((transaction) => {
+    let matchedRule = null;
+    let matchedRuleDetails = [];
+
+    for (const rule of rules || []) {
+      const result = matchesRule(transaction, rule);
+      if (result.matched) {
+        matchedRule = rule;
+        matchedRuleDetails = result.matchedConditions;
+        break;
+      }
+    }
+
+    if (matchedRule) {
+      hitCounts[matchedRule.id] = (hitCounts[matchedRule.id] || 0) + 1;
+    }
+
+    const billCategorySuggestion = transaction.mappedBillCategory || '';
+    const ruleSuggestedCategory = matchedRule?.category || '';
+    const autoCategory = ruleSuggestedCategory || billCategorySuggestion || 'Uncategorized';
+    const manualCategory = manualCategories[transaction.id];
+    const finalCategory = manualCategory || autoCategory;
+
+    return {
+      ...transaction,
+      matchedRuleId: matchedRule?.id || null,
+      matchedRuleName: matchedRule?.name || '',
+      matchedRuleDetails,
+      billCategorySuggestion,
+      ruleSuggestedCategory,
+      suggestedCategory: autoCategory,
+      autoCategory,
+      finalCategory,
+      isCorrected: Boolean(manualCategory) && manualCategory !== autoCategory,
+    };
+  });
+
+  return {
+    reviewedTransactions,
+    hitCounts,
+  };
+};
+
+export const describeCondition = (condition) => {
+  const fieldLabel = FIELD_OPTIONS.find((field) => field.value === condition.field)?.label || condition.field;
+  const matcherLabel =
+    MATCHER_OPTIONS.find((matcher) => matcher.value === condition.matcher)?.label || condition.matcher;
+
+  return `${fieldLabel} · ${matcherLabel} · ${condition.pattern}`;
+};
+
+export const hydrateBillConfig = (config) => ({
+  ...createEmptyBillConfig(config?.name || 'Custom bill type'),
+  ...config,
+  mappings: {
+    ...createEmptyBillConfig(config?.name || 'Custom bill type').mappings,
+    ...(config?.mappings || {}),
+  },
+  categoryMappings: (config?.categoryMappings || []).map((mapping) => ({
+    id: mapping.id || createId('catmap'),
+    source: mapping.source || '',
+    target: mapping.target || '',
+  })),
+  transactionTypeMappings: {
+    ...createEmptyBillConfig(config?.name || 'Custom bill type').transactionTypeMappings,
+    ...(config?.transactionTypeMappings || {}),
+  },
+});
+
+export const createEmptyCategoryMapping = (source = '') => ({
+  id: createId('catmap'),
+  source,
+  target: '',
+});
+
+export const hydrateRule = (rule) => ({
+  ...createEmptyRuleDraft(rule?.scope || 'all'),
+  ...rule,
+  transactionType: rule?.transactionType || 'Expense',
+  conditions: (rule?.conditions || []).map((condition) => ({
+    id: condition.id || createId('cond'),
+    field: condition.field || 'description',
+    matcher: condition.matcher || 'contains',
+    pattern: condition.pattern || '',
+  })),
+});
+
+export const readBillFileText = async (file, encoding) => {
+  const extension = file.name.split('.').pop()?.toLowerCase();
+
+  if (extension === 'xlsx') {
+    const { read, utils } = await import('xlsx');
+    const buffer = await file.arrayBuffer();
+    const workbook = read(buffer, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+
+    if (!firstSheetName) {
+      throw new Error('The spreadsheet has no sheet.');
+    }
+
+    return utils.sheet_to_csv(workbook.Sheets[firstSheetName], {
+      blankrows: false,
+    });
+  }
+
+  const buffer = await file.arrayBuffer();
+  const resolvedEncoding = encoding === 'gb2312' ? 'gbk' : encoding || 'utf-8';
+  return new TextDecoder(resolvedEncoding).decode(buffer);
+};
