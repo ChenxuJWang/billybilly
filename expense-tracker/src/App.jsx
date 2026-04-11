@@ -1,39 +1,21 @@
-import React, { Suspense, lazy, useState } from 'react'
-import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
-import { Button } from '@/components/ui/button.jsx'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx'
-import { Badge } from '@/components/ui/badge.jsx'
-import {
-  Home,
-  CreditCard,
-  PieChart,
-  Users,
-  Upload,
-  Cog,
-  Menu,
-  X,
-  DollarSign,
-  TrendingUp,
-  Calendar,
-  LogOut,
-  Tag,
-  BookOpen
-} from 'lucide-react'
-import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { LedgerProvider } from './contexts/LedgerContext'
-import ProtectedRoute from './components/ProtectedRoute'
-import './App.css'
+import React, { Suspense, lazy, useState } from 'react';
+import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { LedgerProvider } from '@/contexts/LedgerContext';
+import AppShell from '@/components/AppShell.jsx';
+import GlobalDashboard from '@/components/GlobalDashboard.jsx';
+import LedgerAdmin from '@/components/LedgerAdmin.jsx';
+import UserSettingsPage from '@/components/UserSettingsPage.jsx';
+import './App.css';
 
-const Login = lazy(() => import('./components/Login'))
-const Signup = lazy(() => import('./components/Signup'))
-const Dashboard = lazy(() => import('./components/Dashboard'))
-const TransactionManagement = lazy(() => import('./components/TransactionManagement'))
-const BudgetManagement = lazy(() => import('./components/BudgetManagement'))
-const CategoryManagement = lazy(() => import('./components/CategoryManagement'))
-const LedgerManagement = lazy(() => import('./components/LedgerManagement'))
-const ProfileSettings = lazy(() => import('./components/ProfileSettings'))
-const SmartCategorizationSettings = lazy(() => import('./components/SmartCategorizationSettings'))
-const DataImport = lazy(() => import('./components/DataImport'))
+const Login = lazy(() => import('./components/Login'));
+const Signup = lazy(() => import('./components/Signup'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const TransactionManagement = lazy(() => import('./components/TransactionManagement'));
+const BudgetManagement = lazy(() => import('./components/BudgetManagement'));
+const CategoryManagement = lazy(() => import('./components/CategoryManagement'));
+const DataImport = lazy(() => import('./components/DataImport'));
 
 function RouteFallback() {
   return (
@@ -43,288 +25,91 @@ function RouteFallback() {
         <div className="h-40 rounded bg-gray-200"></div>
       </div>
     </div>
-  )
+  );
 }
 
 function withSuspense(element) {
-  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>
-}
-
-// Navigation Component
-function Navigation({ isMobileMenuOpen, setIsMobileMenuOpen }) {
-  const location = useLocation()
-  const { currentUser, logout } = useAuth()
-  
-  const navItems = [
-    { path: '/', label: 'Dashboard', icon: Home },
-    { path: '/transactions', label: 'Transactions', icon: CreditCard },
-    { path: '/budgets', label: 'Budgets', icon: PieChart },
-    { path: '/categories', label: 'Categories', icon: Tag },
-    { path: '/ledgers', label: 'Ledgers', icon: BookOpen },
-    { path: '/splits', label: 'Expense Splits', icon: Users },
-    { path: '/import', label: 'Import', icon: Upload },
-    { path: '/settings', label: 'Settings', icon: Cog },
-  ]
-
-  const handleLogout = async () => {
-    try {
-      await logout()
-    } catch (error) {
-      console.error('Failed to log out:', error)
-    }
-  }
-
-  return (
-    <>
-      {/* Desktop Navigation */}
-      <nav className="hidden md:flex bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between w-full">
-          <div className="flex items-center space-x-8">
-            <div className="flex items-center space-x-2">
-              <DollarSign className="h-8 w-8 text-blue-600" />
-              <span className="text-xl font-bold text-gray-900">ExpenseTracker</span>
-            </div>
-            <div className="flex space-x-6">
-              {navItems.map((item) => {
-                const Icon = item.icon
-                const isActive = location.pathname === item.path
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                      isActive
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </Link>
-                )
-              })}
-            </div>
-          </div>
-          
-          {currentUser && (
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
-                Welcome, {currentUser.displayName || currentUser.email}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                className="flex items-center space-x-2"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>Logout</span>
-              </Button>
-            </div>
-          )}
-        </div>
-      </nav>
-
-      {/* Mobile Navigation */}
-      <nav className="md:hidden bg-white border-b border-gray-200">
-        <div className="flex items-center justify-between px-4 py-4">
-          <div className="flex items-center space-x-2">
-            <DollarSign className="h-6 w-6 text-blue-600" />
-            <span className="text-lg font-bold text-gray-900">ExpenseTracker</span>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          >
-            {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </Button>
-        </div>
-        
-        {isMobileMenuOpen && (
-          <div className="border-t border-gray-200 px-4 py-4 space-y-2">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              const isActive = location.pathname === item.path
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className={`flex items-center space-x-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                </Link>
-              )
-            })}
-            
-            {currentUser && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                className="flex items-center space-x-3 px-3 py-2 w-full justify-start"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>Logout</span>
-              </Button>
-            )}
-          </div>
-        )}
-      </nav>
-    </>
-  )
-}
-
-// Placeholder Components
-function Transactions() {
-  return withSuspense(<TransactionManagement />)
-}
-
-function Budgets() {
-  return withSuspense(<BudgetManagement />)
-}
-
-function Categories() {
-  return withSuspense(<CategoryManagement />)
+  return <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
 }
 
 function ExpenseSplits() {
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Expense Splits</h1>
+      <h1 className="mb-6 text-3xl font-bold text-gray-900">Splits</h1>
       <Card>
         <CardHeader>
-          <CardTitle>Split Expenses</CardTitle>
-          <CardDescription>Share expenses with friends and track balances</CardDescription>
+          <CardTitle>Expense Splits</CardTitle>
+          <CardDescription>Share expenses with friends and track balances per ledger.</CardDescription>
         </CardHeader>
         <CardContent>
-          <p className="text-gray-600">Expense splitting interface will be implemented here.</p>
+          <p className="text-gray-600">Expense splitting improvements can continue inside the new ledger shell.</p>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
 
 function Import({ debugModeEnabled, thinkingModeEnabled }) {
   return withSuspense(
     <DataImport debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />
-  )
+  );
 }
 
-function AppSettings({ smartCategorizationEnabled, setSmartCategorizationEnabled, debugModeEnabled, setDebugModeEnabled, thinkingModeEnabled, setThinkingModeEnabled }) {
-  return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-      
-      {/* Profile Settings */}
-      <Suspense fallback={<RouteFallback />}>
-        <ProfileSettings />
-      </Suspense>
+function AuthRoutes() {
+  const { currentUser } = useAuth();
 
-      {/* Smart Categorization Settings */}
-      <Suspense fallback={<RouteFallback />}>
-        <SmartCategorizationSettings
-          smartCategorizationEnabled={smartCategorizationEnabled}
-          setSmartCategorizationEnabled={setSmartCategorizationEnabled}
-          debugModeEnabled={debugModeEnabled}
-          setDebugModeEnabled={setDebugModeEnabled}
-          thinkingModeEnabled={thinkingModeEnabled}
-          setThinkingModeEnabled={setThinkingModeEnabled}
-        />
-      </Suspense>
-      
-      {/* Additional Settings Placeholder */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Application Preferences</CardTitle>
-          <CardDescription>Additional application settings will be available here</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-gray-600">More settings options coming soon...</p>
-        </CardContent>
-      </Card>
-    </div>
-  )
+  return (
+    <Routes>
+      <Route path="/login" element={currentUser ? <Navigate to="/" replace /> : withSuspense(<Login />)} />
+      <Route path="/signup" element={currentUser ? <Navigate to="/" replace /> : withSuspense(<Signup />)} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
+    </Routes>
+  );
 }
 
-// Main App Component
-function AppContent() {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const { currentUser } = useAuth()
-  const [debugModeEnabled, setDebugModeEnabled] = useState(false); // State for debug mode, passed to Import
-  const [smartCategorizationEnabled, setSmartCategorizationEnabled] = useState(false); // State for smart categorization, passed to AppSettings
-  const [thinkingModeEnabled, setThinkingModeEnabled] = useState(false); // State for thinking mode, passed to Import and AppSettings
+function AppRoutes() {
+  const { currentUser } = useAuth();
+  const [debugModeEnabled, setDebugModeEnabled] = useState(false);
+  const [smartCategorizationEnabled, setSmartCategorizationEnabled] = useState(false);
+  const [thinkingModeEnabled, setThinkingModeEnabled] = useState(false);
+
+  if (!currentUser) {
+    return <AuthRoutes />;
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {currentUser && (
-        <Navigation 
-          isMobileMenuOpen={isMobileMenuOpen} 
-          setIsMobileMenuOpen={setIsMobileMenuOpen} 
+    <AppShell>
+      <Routes>
+        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route path="/signup" element={<Navigate to="/" replace />} />
+        <Route path="/" element={<GlobalDashboard />} />
+        <Route path="/overview" element={withSuspense(<Dashboard />)} />
+        <Route path="/transactions" element={withSuspense(<TransactionManagement />)} />
+        <Route path="/budgets" element={withSuspense(<BudgetManagement />)} />
+        <Route path="/categories" element={withSuspense(<CategoryManagement />)} />
+        <Route path="/splits" element={<ExpenseSplits />} />
+        <Route
+          path="/import"
+          element={<Import debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />}
         />
-      )}
-      
-      <main className={currentUser ? "max-w-7xl mx-auto" : ""}>
-        <Routes>
-          <Route path="/login" element={currentUser ? <Navigate to="/" /> : withSuspense(<Login />)} />
-          <Route path="/signup" element={currentUser ? <Navigate to="/" /> : withSuspense(<Signup />)} />
-          <Route path="/" element={
-            <ProtectedRoute>
-              {withSuspense(<Dashboard />)}
-            </ProtectedRoute>
-          } />
-          <Route path="/transactions" element={
-            <ProtectedRoute>
-              <Transactions />
-            </ProtectedRoute>
-          } />
-          <Route path="/budgets" element={
-            <ProtectedRoute>
-              <Budgets />
-            </ProtectedRoute>
-          } />
-          <Route path="/categories" element={
-            <ProtectedRoute>
-              <Categories />
-            </ProtectedRoute>
-          } />
-          <Route path="/ledgers" element={
-            <ProtectedRoute>
-              {withSuspense(<LedgerManagement />)}
-            </ProtectedRoute>
-          } />
-          <Route path="/splits" element={
-            <ProtectedRoute>
-              <ExpenseSplits />
-            </ProtectedRoute>
-          } />
-          <Route path="/import" element={
-            <ProtectedRoute>
-              <Import debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />
-            </ProtectedRoute>
-          } />
-          <Route path="/settings" element={
-            <ProtectedRoute>
-              <AppSettings 
-                smartCategorizationEnabled={smartCategorizationEnabled}
-                setSmartCategorizationEnabled={setSmartCategorizationEnabled}
-                debugModeEnabled={debugModeEnabled}
-                setDebugModeEnabled={setDebugModeEnabled}
-                thinkingModeEnabled={thinkingModeEnabled}
-                setThinkingModeEnabled={setThinkingModeEnabled}
-              />
-            </ProtectedRoute>
-          } />
-        </Routes>
-      </main>
-    </div>
-  )
+        <Route path="/admin" element={<LedgerAdmin />} />
+        <Route
+          path="/settings"
+          element={
+            <UserSettingsPage
+              smartCategorizationEnabled={smartCategorizationEnabled}
+              setSmartCategorizationEnabled={setSmartCategorizationEnabled}
+              debugModeEnabled={debugModeEnabled}
+              setDebugModeEnabled={setDebugModeEnabled}
+              thinkingModeEnabled={thinkingModeEnabled}
+              setThinkingModeEnabled={setThinkingModeEnabled}
+            />
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AppShell>
+  );
 }
 
 function App() {
@@ -332,12 +117,11 @@ function App() {
     <Router>
       <AuthProvider>
         <LedgerProvider>
-          <AppContent />
+          <AppRoutes />
         </LedgerProvider>
       </AuthProvider>
     </Router>
-  )
+  );
 }
 
-export default App
-
+export default App;

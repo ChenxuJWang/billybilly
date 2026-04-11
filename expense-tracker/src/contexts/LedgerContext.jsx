@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { useAuth } from './AuthContext';
 
 const LedgerContext = createContext();
+const LEDGER_STORAGE_PREFIX = 'expense-tracker/current-ledger';
 
 export function useLedger() {
   return useContext(LedgerContext);
@@ -15,11 +16,45 @@ export function LedgerProvider({ children }) {
   const [currentLedger, setCurrentLedger] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const getStorageKey = useCallback(() => {
+    if (!currentUser?.uid) {
+      return null;
+    }
+
+    return `${LEDGER_STORAGE_PREFIX}/${currentUser.uid}`;
+  }, [currentUser?.uid]);
+
+  const persistCurrentLedger = useCallback((ledgerId) => {
+    const storageKey = getStorageKey();
+
+    if (!storageKey || typeof window === 'undefined') {
+      return;
+    }
+
+    if (ledgerId) {
+      window.localStorage.setItem(storageKey, ledgerId);
+      return;
+    }
+
+    window.localStorage.removeItem(storageKey);
+  }, [getStorageKey]);
+
+  const getStoredLedgerId = useCallback(() => {
+    const storageKey = getStorageKey();
+
+    if (!storageKey || typeof window === 'undefined') {
+      return null;
+    }
+
+    return window.localStorage.getItem(storageKey);
+  }, [getStorageKey]);
+
   // Fetch user's ledgers
   const fetchLedgers = useCallback(async () => {
     if (!currentUser) {
       setLedgers([]);
       setCurrentLedger(null);
+      persistCurrentLedger(null);
       setLoading(false);
       return;
     }
@@ -43,18 +78,27 @@ export function LedgerProvider({ children }) {
 
       setLedgers(userLedgers);
       
-      // Always set the first ledger as current for new users or if no current ledger
       if (userLedgers.length > 0) {
-        setCurrentLedger(userLedgers[0]);
+        const storedLedgerId = getStoredLedgerId();
+        setCurrentLedger((previousCurrentLedger) => {
+          const nextLedger =
+            userLedgers.find((ledger) => ledger.id === previousCurrentLedger?.id) ||
+            userLedgers.find((ledger) => ledger.id === storedLedgerId) ||
+            userLedgers[0];
+
+          persistCurrentLedger(nextLedger.id);
+          return nextLedger;
+        });
       } else {
         setCurrentLedger(null);
+        persistCurrentLedger(null);
       }
     } catch (error) {
       console.error('Error fetching ledgers:', error);
     } finally {
       setLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser, getStoredLedgerId, persistCurrentLedger]);
 
   // Refresh ledgers (useful after signup)
   const refreshLedgers = useCallback(async () => {
@@ -65,10 +109,19 @@ export function LedgerProvider({ children }) {
   // Switch to a different ledger
   const switchLedger = async (ledgerId) => {
     try {
+      const existingLedger = ledgers.find((ledger) => ledger.id === ledgerId);
+
+      if (existingLedger) {
+        setCurrentLedger(existingLedger);
+        persistCurrentLedger(existingLedger.id);
+        return;
+      }
+
       const ledgerDoc = await getDoc(doc(db, 'ledgers', ledgerId));
       if (ledgerDoc.exists()) {
         const ledgerData = { id: ledgerDoc.id, ...ledgerDoc.data() };
         setCurrentLedger(ledgerData);
+        persistCurrentLedger(ledgerData.id);
       }
     } catch (error) {
       console.error('Error switching ledger:', error);
