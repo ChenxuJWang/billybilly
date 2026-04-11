@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label.jsx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
-import { UserPlus, X, Send, Clock, Check, Trash2, Users } from 'lucide-react';
+import { UserPlus, X, Send, Clock, Check, Trash2, Users, Mail } from 'lucide-react';
 import { 
   collection, 
   setDoc,
@@ -21,6 +21,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import ProfileImage from '@/components/ProfileImage.jsx';
 import { createInvitationDocId } from '@/features/invitations/utils.js';
 export default function InviteUser({ ledger, onClose }) {
   const { currentUser } = useAuth();
@@ -36,6 +37,8 @@ export default function InviteUser({ ledger, onClose }) {
     email: '',
     role: 'member'
   });
+
+  const normalizeEmail = useCallback((value) => value?.trim?.().toLowerCase?.() || '', []);
 
   // Fetch existing invitations for this ledger
   const fetchInvitations = useCallback(async () => {
@@ -115,8 +118,10 @@ export default function InviteUser({ ledger, onClose }) {
     }
 
     // Check if user is already a member
-    const existingMember = members.find(member => 
-      member.email.toLowerCase() === formData.email.toLowerCase()
+    const normalizedInviteeEmail = normalizeEmail(formData.email);
+
+    const existingMember = members.find((member) =>
+      normalizeEmail(member.email) === normalizedInviteeEmail
     );
     if (existingMember) {
       setError('This user is already a member of this ledger');
@@ -124,8 +129,8 @@ export default function InviteUser({ ledger, onClose }) {
     }
 
     // Check if invitation already exists
-    const existingInvitation = invitations.find(inv => 
-      inv.inviteeEmail.toLowerCase() === formData.email.toLowerCase()
+    const existingInvitation = invitations.find((inv) =>
+      normalizeEmail(inv.inviteeEmail) === normalizedInviteeEmail
     );
     if (existingInvitation) {
       setError('An invitation has already been sent to this email address');
@@ -136,7 +141,7 @@ export default function InviteUser({ ledger, onClose }) {
       setLoading(true);
       setError('');
 
-      const inviteeEmail = formData.email.trim().toLowerCase();
+      const inviteeEmail = normalizedInviteeEmail;
       const invitationId = createInvitationDocId(ledger.id, inviteeEmail);
 
       await setDoc(doc(db, 'invitations', invitationId), {
