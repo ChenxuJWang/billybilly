@@ -330,7 +330,7 @@ function ShellSidebar({ onCreateLedger, onLogout }) {
   return (
     <Sidebar collapsible="icon" className="border-r border-[rgba(134,109,92,0.14)]">
       <SidebarHeader className="gap-3 px-3 py-4">
-        <div className="flex items-center gap-3 rounded-2xl bg-white/70 px-3 py-3 shadow-sm">
+        <div className="flex items-center gap-3 rounded-2xl bg-white/70 px-3 py-3 shadow-sm group-data-[collapsible=icon]:hidden">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-stone-900 text-white">
             <Wallet className="h-5 w-5" />
           </div>
@@ -340,22 +340,24 @@ function ShellSidebar({ onCreateLedger, onLogout }) {
           </div>
         </div>
 
-        <SidebarMenu>
+        <SidebarMenu className="group-data-[collapsible=icon]:items-center">
           {GLOBAL_ITEMS.map((item) => (
             <NavMenuItem key={item.to} item={item} pathname={location.pathname} />
           ))}
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarSeparator />
+      <SidebarSeparator className="mx-auto w-[calc(100%-1rem)] group-data-[collapsible=icon]:w-6" />
 
       <SidebarContent className="px-1 py-2">
         <SidebarGroup>
           <SidebarGroupLabel>{currentLedger ? 'Selected Ledger' : 'No Ledger Yet'}</SidebarGroupLabel>
           <SidebarGroupContent className="space-y-3">
-            <LedgerSwitcher onCreateLedger={onCreateLedger} />
+            <div className="group-data-[collapsible=icon]:hidden">
+              <LedgerSwitcher onCreateLedger={onCreateLedger} />
+            </div>
             {currentLedger ? (
-              <SidebarMenu>
+              <SidebarMenu className="group-data-[collapsible=icon]:items-center">
                 {LEDGER_ITEMS.map((item) => (
                   <NavMenuItem key={item.to} item={item} pathname={location.pathname} />
                 ))}
@@ -369,11 +371,11 @@ function ShellSidebar({ onCreateLedger, onLogout }) {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarSeparator />
+      <SidebarSeparator className="mx-auto w-[calc(100%-1rem)] group-data-[collapsible=icon]:w-6" />
 
       <SidebarFooter className="px-3 py-4">
-        <div className="flex items-center gap-2">
-          <SidebarMenu className="flex-1">
+        <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+          <SidebarMenu className="flex-1 group-data-[collapsible=icon]:flex-none group-data-[collapsible=icon]:items-center">
             <SidebarMenuItem>
               <SidebarMenuButton
                 asChild
@@ -399,7 +401,7 @@ function ShellSidebar({ onCreateLedger, onLogout }) {
             variant="ghost"
             size="icon"
             onClick={onLogout}
-            className="shrink-0 rounded-2xl text-stone-600 hover:bg-white/70 hover:text-stone-900"
+            className="shrink-0 rounded-2xl text-stone-600 hover:bg-white/70 hover:text-stone-900 group-data-[collapsible=icon]:hidden"
             title="Log out"
           >
             <LogOut className="h-4 w-4" />
