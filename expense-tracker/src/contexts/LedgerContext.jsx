@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, FieldPath, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from './AuthContext';
 
@@ -60,21 +60,16 @@ export function LedgerProvider({ children }) {
     }
 
     try {
-      const ledgersRef = collection(db, 'ledgers');
-      // Get all ledgers and filter client-side for better compatibility
-      const querySnapshot = await getDocs(ledgersRef);
-      
-      const userLedgers = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        // Check if user is actually a member
-        if (data.members && data.members[currentUser.uid]) {
-          userLedgers.push({
-            id: doc.id,
-            ...data
-          });
-        }
-      });
+      const ledgersQuery = query(
+        collection(db, 'ledgers'),
+        where(new FieldPath('members', currentUser.uid), 'in', ['owner', 'member'])
+      );
+      const querySnapshot = await getDocs(ledgersQuery);
+
+      const userLedgers = querySnapshot.docs.map((ledgerDoc) => ({
+        id: ledgerDoc.id,
+        ...ledgerDoc.data(),
+      }));
 
       setLedgers(userLedgers);
       

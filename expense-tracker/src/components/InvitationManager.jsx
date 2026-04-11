@@ -75,23 +75,9 @@ export default function InvitationManager() {
       setLoading(true);
       setError('');
 
-      // Get the ledger document
       const ledgerRef = doc(db, 'ledgers', invitation.ledgerId);
-      const ledgerDoc = await getDocs(query(collection(db, 'ledgers'), where('__name__', '==', invitation.ledgerId)));
-      
-      if (ledgerDoc.empty) {
-        throw new Error('Ledger not found');
-      }
-
-      const ledgerData = ledgerDoc.docs[0].data();
-      const updatedMembers = {
-        ...ledgerData.members,
-        [currentUser.uid]: invitation.role
-      };
-
-      // Update ledger with new member
       await updateDoc(ledgerRef, {
-        members: updatedMembers,
+        [`members.${currentUser.uid}`]: invitation.role,
         updatedAt: new Date()
       });
 

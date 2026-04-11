@@ -1,38 +1,113 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function signedInEmail() {
+      return request.auth.token.email;
+    }
+
+    function isLedgerMemberByData(ledgerData) {
+      return isSignedIn() &&
+        ledgerData.members[request.auth.uid] in ['owner', 'member'];
+    }
+
+    function isLedgerMember(ledgerId) {
+      return isLedgerMemberByData(
+        get(/databases/$(database)/documents/ledgers/$(ledgerId)).data
+      );
+    }
+
+    function isLedgerOwner(ledgerId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/ledgers/$(ledgerId)).data.ownerId == request.auth.uid;
+    }
+
+    function invitationDocId(ledgerId) {
+      return ledgerId + "__" + signedInEmail();
+    }
+
+    function invitationDoc(ledgerId) {
+      return get(/databases/$(database)/documents/invitations/$(invitationDocId(ledgerId)));
+    }
+
+    function hasPendingInvitation(ledgerId) {
+      return isSignedIn() &&
+        signedInEmail() != null &&
+        exists(/databases/$(database)/documents/invitations/$(invitationDocId(ledgerId))) &&
+        invitationDoc(ledgerId).data.status == 'pending' &&
+        invitationDoc(ledgerId).data.ledgerId == ledgerId &&
+        invitationDoc(ledgerId).data.inviteeEmail == signedInEmail();
+    }
 
     // Users collection: Only authenticated users can read/write their own user document
     match /users/{userId} {
-      allow read, write: if request.auth.uid == userId;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
     }
 
     // Ledgers collection: Access controlled by members map and roles
     match /ledgers/{ledgerId} {
       // Allow read if user is a member of the ledger
-      allow read: if request.auth.uid in resource.data.members;
+      allow read: if isLedgerMemberByData(resource.data);
 
       // Allow create if user is authenticated and sets themselves as owner
-      allow create: if request.auth.uid != null && 
-                       request.auth.uid == request.resource.data.ownerId && 
+      allow create: if isSignedIn() &&
+                       request.auth.uid == request.resource.data.ownerId &&
                        request.resource.data.members[request.auth.uid] == 'owner';
 
       // Allow update if user is an owner of the ledger
-      allow update: if request.auth.uid in resource.data.members && 
-                       resource.data.members[request.auth.uid] == 'owner';
+      allow update: if isLedgerOwner(ledgerId) ||
+                       (
+                         hasPendingInvitation(ledgerId) &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'updatedAt']) &&
+                         request.resource.data.members.diff(resource.data.members).affectedKeys().hasOnly([request.auth.uid]) &&
+                         request.resource.data.members[request.auth.uid] == invitationDoc(ledgerId).data.role
+                       );
 
       // Allow delete if user is the owner of the ledger
-      allow delete: if request.auth.uid == resource.data.ownerId;
+      allow delete: if isLedgerOwner(ledgerId);
 
       // Subcollections within a ledger
       match /{document=**} {
         // Allow read if user is a member of the ledger
-        allow read: if request.auth.uid in get(/databases/$(database)/documents/ledgers/$(ledgerId)).data.members;
+        allow read: if isLedgerMember(ledgerId);
 
         // Allow write based on role (member or owner)
-        allow write: if request.auth.uid in get(/databases/$(database)/documents/ledgers/$(ledgerId)).data.members;
+        allow write: if isLedgerMember(ledgerId);
       }
+    }
+
+    match /invitations/{invitationId} {
+      allow read: if isSignedIn() && (
+        resource.data.inviteeEmail == signedInEmail() ||
+        isLedgerOwner(resource.data.ledgerId)
+      );
+
+      allow create: if isSignedIn() &&
+        invitationId == request.resource.data.ledgerId + "__" + request.resource.data.inviteeEmail &&
+        request.resource.data.inviterId == request.auth.uid &&
+        isLedgerOwner(request.resource.data.ledgerId) &&
+        request.resource.data.status == 'pending';
+
+      allow update: if
+        (
+          isLedgerOwner(resource.data.ledgerId)
+        ) ||
+        (
+          isSignedIn() &&
+          resource.data.inviteeEmail == signedInEmail() &&
+          resource.data.status == 'pending' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'declinedAt']) &&
+          (
+            request.resource.data.status == 'accepted' ||
+            request.resource.data.status == 'declined'
+          )
+        );
+
+      allow delete: if isSignedIn() && isLedgerOwner(resource.data.ledgerId);
     }
   }
 }
-

@@ -20,7 +20,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   function signup(email, password, displayName) {
-    return createUserWithEmailAndPassword(auth, email, password)
+    const normalizedEmail = email.trim().toLowerCase();
+
+    return createUserWithEmailAndPassword(auth, normalizedEmail, password)
       .then(async (result) => {
         // Update the user's display name
         await updateProfile(result.user, { displayName });
@@ -52,7 +54,7 @@ export function AuthProvider({ children }) {
   }
 
   function login(email, password) {
-    return signInWithEmailAndPassword(auth, email, password);
+    return signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
   }
 
   function logout() {

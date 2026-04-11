@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { UserPlus, X, Send, Clock, Check, Trash2, Users } from 'lucide-react';
 import { 
   collection, 
-  addDoc, 
+  setDoc,
   getDocs, 
   doc, 
   updateDoc, 
@@ -21,6 +21,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { createInvitationDocId } from '@/features/invitations/utils.js';
 export default function InviteUser({ ledger, onClose }) {
   const { currentUser } = useAuth();
   const { refreshLedgers } = useLedger();
@@ -135,13 +136,16 @@ export default function InviteUser({ ledger, onClose }) {
       setLoading(true);
       setError('');
 
-      await addDoc(collection(db, 'invitations'), {
+      const inviteeEmail = formData.email.trim().toLowerCase();
+      const invitationId = createInvitationDocId(ledger.id, inviteeEmail);
+
+      await setDoc(doc(db, 'invitations', invitationId), {
         ledgerId: ledger.id,
         ledgerName: ledger.name,
         inviterId: currentUser.uid,
         inviterEmail: currentUser.email,
         inviterName: currentUser.displayName || currentUser.email,
-        inviteeEmail: formData.email.toLowerCase(),
+        inviteeEmail,
         role: formData.role,
         status: 'pending',
         createdAt: new Date(),
