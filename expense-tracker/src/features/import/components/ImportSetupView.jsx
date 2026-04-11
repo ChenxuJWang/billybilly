@@ -18,13 +18,14 @@ import {
 } from 'lucide-react';
 
 export default function ImportSetupView({
-  selectedPlatform,
-  setSelectedPlatform,
   file,
   onFileUpload,
   error,
   success,
-  importPlatforms,
+  billConfigs,
+  selectedBillConfigId,
+  setSelectedBillConfigId,
+  selectedBillConfig,
   categorizationEnabled,
   categorizationStatusMessage,
 }) {
@@ -55,35 +56,40 @@ export default function ImportSetupView({
 
       <Card>
         <CardHeader>
-          <CardTitle>Select Import Platform</CardTitle>
-          <CardDescription>Choose the platform you want to import transactions from.</CardDescription>
+          <CardTitle>Select Bill Config</CardTitle>
+          <CardDescription>
+            Choose the saved bill config that matches the file you want to import.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
+          <Select value={selectedBillConfigId} onValueChange={setSelectedBillConfigId}>
             <SelectTrigger className="w-[240px]">
-              <SelectValue placeholder="Select a platform" />
+              <SelectValue placeholder="Select a bill config" />
             </SelectTrigger>
             <SelectContent>
-              {importPlatforms.map((platform) => (
-                <SelectItem key={platform.id} value={platform.id}>
-                  <div className="flex items-center space-x-2">
-                    <platform.icon className="h-4 w-4" />
-                    <span>{platform.name}</span>
-                  </div>
+              {billConfigs.map((config) => (
+                <SelectItem key={config.id} value={config.id}>
+                  {config.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+
+          {billConfigs.length === 0 && (
+            <p className="mt-3 text-sm text-gray-500">
+              No bill configs are available yet. Add one from the Settings page before importing.
+            </p>
+          )}
         </CardContent>
       </Card>
 
-      {selectedPlatform && (
+      {selectedBillConfig && (
         <Card>
           <CardHeader>
-            <CardTitle>
-              Upload {importPlatforms.find((platform) => platform.id === selectedPlatform)?.name} File
-            </CardTitle>
-            <CardDescription>Upload your exported CSV file in the original platform format.</CardDescription>
+            <CardTitle>Upload {selectedBillConfig.name} File</CardTitle>
+            <CardDescription>
+              Upload your exported file in the format expected by this saved bill config.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center space-x-4">
@@ -99,21 +105,20 @@ export default function ImportSetupView({
                 type="file"
                 className="hidden"
                 onChange={onFileUpload}
-                accept=".csv,.txt"
+                accept=".csv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               />
               {file && <Badge variant="secondary">{file.name}</Badge>}
             </div>
 
             <div className="text-sm text-gray-500">
-              <p>
-                Expected fields for{' '}
-                {importPlatforms.find((platform) => platform.id === selectedPlatform)?.name}:
-              </p>
+              <p>Expected mapped fields for {selectedBillConfig.name}:</p>
               <ol className="list-decimal list-inside">
-                {importPlatforms
-                  .find((platform) => platform.id === selectedPlatform)
-                  ?.sampleFields.map((field) => (
-                    <li key={field}>{field}</li>
+                {Object.entries(selectedBillConfig.mappings || {})
+                  .filter(([, sourceField]) => sourceField)
+                  .map(([fieldKey, sourceField]) => (
+                    <li key={fieldKey}>
+                      {fieldKey}: {sourceField}
+                    </li>
                   ))}
               </ol>
             </div>

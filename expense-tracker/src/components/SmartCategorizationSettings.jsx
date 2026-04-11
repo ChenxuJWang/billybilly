@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle, Save } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Label } from '@/components/ui/label.jsx';
@@ -25,6 +25,7 @@ import {
   saveCategorizationSettings,
   verifyLlmApiKey,
 } from '@/features/categorization/settings';
+import RuleEngineSettingsPanel from '@/components/RuleEngineSettingsPanel';
 
 export default function SmartCategorizationSettings({
   smartCategorizationEnabled,
@@ -47,33 +48,34 @@ export default function SmartCategorizationSettings({
   const [systemPrompt, setSystemPrompt] = useState('');
   const [systemPromptError, setSystemPromptError] = useState('');
   const [systemPromptSaving, setSystemPromptSaving] = useState(false);
+  const [ruleEngineSettings, setRuleEngineSettings] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
 
-  useEffect(() => {
-    async function fetchCategories() {
-      if (!currentLedger) {
-        setCategories([]);
-        return;
-      }
-
-      try {
-        const categoriesSnapshot = await getDocs(
-          collection(db, 'ledgers', currentLedger.id, 'categories')
-        );
-
-        setCategories(
-          categoriesSnapshot.docs.map((categorySnapshot) => ({
-            id: categorySnapshot.id,
-            ...categorySnapshot.data(),
-          }))
-        );
-      } catch (categoriesError) {
-        console.error('Error fetching categories for categorization settings:', categoriesError);
-      }
+  const fetchCategories = useCallback(async () => {
+    if (!currentLedger) {
+      setCategories([]);
+      return;
     }
 
-    fetchCategories();
+    try {
+      const categoriesSnapshot = await getDocs(
+        collection(db, 'ledgers', currentLedger.id, 'categories')
+      );
+
+      setCategories(
+        categoriesSnapshot.docs.map((categorySnapshot) => ({
+          id: categorySnapshot.id,
+          ...categorySnapshot.data(),
+        }))
+      );
+    } catch (categoriesError) {
+      console.error('Error fetching categories for categorization settings:', categoriesError);
+    }
   }, [currentLedger]);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
 
   useEffect(() => {
     async function fetchSettings() {
@@ -86,6 +88,7 @@ export default function SmartCategorizationSettings({
         setApiKey(settings.apiKey);
         setApiKeyVerified(Boolean(settings.apiKey));
         setSystemPrompt(settings.systemPrompt);
+        setRuleEngineSettings(settings.ruleEngineSettings);
       } catch (settingsError) {
         console.error('Error loading categorization settings:', settingsError);
       } finally {
@@ -173,6 +176,19 @@ export default function SmartCategorizationSettings({
       setSystemPromptError(promptSaveError.message || 'Failed to save the system prompt.');
     } finally {
       setSystemPromptSaving(false);
+    }
+  }
+
+  async function handleRuleEngineSettingsSave(nextRuleEngineSettings) {
+    setRuleEngineSettings(nextRuleEngineSettings);
+
+    try {
+      await saveCategorizationSettings(currentUser, {
+        ruleEngineSettings: nextRuleEngineSettings,
+      });
+    } catch (saveError) {
+      console.error('Failed to save rule engine settings:', saveError);
+      throw saveError;
     }
   }
 
@@ -295,14 +311,13 @@ export default function SmartCategorizationSettings({
               </>
             )}
 
-            {categorizationEngine === 'rules' && (
-              <Alert>
-                <CheckCircle className="h-4 w-4" />
-                <AlertDescription>
-                  The rule engine is now wired into the main import flow with built-in starter rules.
-                  This keeps the codebase ready for the full rule manager merge.
-                </AlertDescription>
-              </Alert>
+            {ruleEngineSettings && (
+              <RuleEngineSettingsPanel
+                categories={categories}
+                value={ruleEngineSettings}
+                onSaveRuleEngineSettings={handleRuleEngineSettingsSave}
+                onRefreshLedgerCategories={fetchCategories}
+              />
             )}
           </>
         )}

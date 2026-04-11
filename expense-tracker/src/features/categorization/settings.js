@@ -5,6 +5,7 @@ import {
   getCategorizationEngineLabel,
 } from '@/features/categorization/constants';
 import { buildLlmSystemPrompt } from '@/features/categorization/prompt';
+import { hydrateRuleEngineSettings } from '@/features/categorization/ruleEngine';
 
 function resolveStoredEngine(userData = {}) {
   if (userData.categorizationEngine) {
@@ -25,6 +26,7 @@ export async function loadCategorizationSettings(currentUser, categories = []) {
       engine: DEFAULT_CATEGORIZATION_ENGINE,
       apiKey: '',
       systemPrompt: buildLlmSystemPrompt(categories),
+      ruleEngineSettings: hydrateRuleEngineSettings(),
     };
   }
 
@@ -38,6 +40,7 @@ export async function loadCategorizationSettings(currentUser, categories = []) {
     engine,
     apiKey: userData.llmApiKey || '',
     systemPrompt: userData.categorizationSystemPrompt || buildLlmSystemPrompt(categories),
+    ruleEngineSettings: hydrateRuleEngineSettings(userData.ruleEngineSettings),
   };
 }
 
@@ -91,6 +94,16 @@ export async function verifyLlmApiKey(apiKey) {
   return true;
 }
 
-export function getCategorizationStatusMessage(engineId) {
+export function getCategorizationStatusMessage(engineId, ruleEngineSettings) {
+  if (engineId === 'rules') {
+    const configName = ruleEngineSettings?.billConfigs?.find(
+      (config) => config.id === ruleEngineSettings?.selectedBillConfigId
+    )?.name;
+
+    return configName
+      ? `Automatic categorization is enabled with ${getCategorizationEngineLabel(engineId)} using ${configName}.`
+      : `Automatic categorization is enabled with ${getCategorizationEngineLabel(engineId)}.`;
+  }
+
   return `Automatic categorization is enabled with ${getCategorizationEngineLabel(engineId)}.`;
 }

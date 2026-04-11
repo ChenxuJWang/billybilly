@@ -12,7 +12,6 @@ import {
 import {
   CATEGORIZATION_EMPTY_MESSAGE,
   CATEGORIZATION_STATUS_LABELS,
-  IMPORT_PLATFORMS,
 } from '@/features/import/constants';
 import ImportSetupView from '@/features/import/components/ImportSetupView';
 import ImportProgressView from '@/features/import/components/ImportProgressView';
@@ -44,7 +43,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
 
-  const [selectedPlatform, setSelectedPlatform] = useState('');
+  const [selectedBillConfigId, setSelectedBillConfigId] = useState('');
   const [file, setFile] = useState(null);
   const [categories, setCategories] = useState([]);
   const [importing, setImporting] = useState(false);
@@ -57,6 +56,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const [categorizationEngineId, setCategorizationEngineId] = useState('rules');
   const [apiKey, setApiKey] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [ruleEngineSettings, setRuleEngineSettings] = useState(null);
 
   const [parsedTransactions, setParsedTransactions] = useState([]);
   const [displayedTransactions, setDisplayedTransactions] = useState([]);
@@ -112,6 +112,12 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
         setCategorizationEngineId(settings.engine);
         setApiKey(settings.apiKey);
         setSystemPrompt(settings.systemPrompt);
+        setRuleEngineSettings(settings.ruleEngineSettings);
+        setSelectedBillConfigId(
+          settings.ruleEngineSettings?.selectedBillConfigId ||
+            settings.ruleEngineSettings?.billConfigs?.[0]?.id ||
+            ''
+        );
       } catch (settingsError) {
         console.error('Error loading categorization settings:', settingsError);
       }
@@ -140,6 +146,10 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
     usage: categorizationUsage,
     debugInfo,
   };
+  const selectedBillConfig =
+    ruleEngineSettings?.billConfigs?.find((config) => config.id === selectedBillConfigId) ||
+    ruleEngineSettings?.billConfigs?.[0] ||
+    null;
 
   async function runCategorization(transactions) {
     setStreamingContent('');
@@ -155,6 +165,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
       const result = await categorizationEngine.run({
         transactions,
         categories,
+        rules: ruleEngineSettings?.rules,
         systemPrompt,
         apiKey,
         thinkingModeEnabled,
@@ -206,7 +217,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
 
   async function handleFileUpload(event) {
     const uploadedFile = event.target.files?.[0];
-    if (!uploadedFile || !selectedPlatform) {
+    if (!uploadedFile || !selectedBillConfig) {
       return;
     }
 
@@ -226,7 +237,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
 
       const nextParsedTransactions = await parseImportedFile({
         file: uploadedFile,
-        platform: selectedPlatform,
+        billConfig: selectedBillConfig,
         categories,
       });
 
@@ -383,16 +394,19 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
 
   return (
     <ImportSetupView
-      selectedPlatform={selectedPlatform}
-      setSelectedPlatform={setSelectedPlatform}
       file={file}
       onFileUpload={handleFileUpload}
       error={error}
       success={success}
-      importPlatforms={IMPORT_PLATFORMS}
+      billConfigs={ruleEngineSettings?.billConfigs || []}
+      selectedBillConfigId={selectedBillConfigId}
+      setSelectedBillConfigId={setSelectedBillConfigId}
+      selectedBillConfig={selectedBillConfig}
       categorizationEnabled={categorizationEnabled}
       categorizationStatusMessage={
-        categorizationEnabled ? getCategorizationStatusMessage(categorizationEngineId) : ''
+        categorizationEnabled
+          ? getCategorizationStatusMessage(categorizationEngineId, ruleEngineSettings)
+          : ''
       }
     />
   );

@@ -2,7 +2,7 @@ export const CATEGORIZATION_ENGINE_OPTIONS = [
   {
     value: 'rules',
     label: 'Rule Engine',
-    description: 'Deterministic local categorization using built-in rules.',
+    description: 'Deterministic local categorization using editable bill configs and rules.',
   },
   {
     value: 'llm',
