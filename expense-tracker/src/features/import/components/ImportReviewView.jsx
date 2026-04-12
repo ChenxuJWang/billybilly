@@ -1,3 +1,4 @@
+import { memo, useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle, Sparkles, XCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
@@ -72,7 +73,9 @@ function TransactionTypeBadge({ transaction }) {
   );
 }
 
-function CategorySelectContent({ transaction, expenseCategories, incomeCategories }) {
+function CategorySelectContent({ transaction, categories }) {
+  const expenseCategories = categories.filter((category) => category.type === 'expense');
+  const incomeCategories = categories.filter((category) => category.type === 'income');
   const isNeutral = transaction.internalTransactionType === 'Neutral';
 
   if (!isNeutral) {
@@ -118,51 +121,162 @@ function CategorySelectContent({ transaction, expenseCategories, incomeCategorie
 }
 
 function RuleSuggestionPrompt({ prompt, onDismiss, onApply }) {
-  if (!prompt) {
+  const [renderedPrompt, setRenderedPrompt] = useState(prompt);
+  const [visible, setVisible] = useState(Boolean(prompt));
+
+  useEffect(() => {
+    if (prompt) {
+      setRenderedPrompt(prompt);
+      requestAnimationFrame(() => {
+        setVisible(true);
+      });
+      return undefined;
+    }
+
+    setVisible(false);
+    const timer = setTimeout(() => {
+      setRenderedPrompt(null);
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [prompt]);
+
+  if (!renderedPrompt) {
     return null;
   }
 
-  const title =
-    prompt.mode === 'update' ? 'Update this rule too?' : 'Save this as a rule?';
-  const description =
-    prompt.mode === 'update'
-      ? `You changed a rule-hit transaction. Update "${prompt.ruleName}" so future imports use this category too.`
-      : `You manually categorized an HTT transaction. Save it as a reusable rule for ${prompt.billTypeName || 'this bill type'}.`;
-  const actionLabel = prompt.mode === 'update' ? 'Update Rule' : 'Save Rule';
-
   return (
-    <div className="fixed right-4 bottom-4 z-50 w-[min(24rem,calc(100vw-2rem))]">
-      <Card className="border-stone-200 bg-white/95 shadow-xl backdrop-blur">
-        <CardHeader className="pb-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Sparkles className="h-4 w-4 text-amber-500" />
-                {title}
-              </CardTitle>
-              <CardDescription>{description}</CardDescription>
+    <div
+      className={`pointer-events-none fixed right-4 bottom-4 z-50 w-[min(24rem,calc(100vw-2rem))] transition-all ${
+        visible
+          ? 'translate-y-0 scale-100 opacity-100 duration-500 ease-out'
+          : 'translate-y-4 scale-[0.98] opacity-0 duration-[800ms] ease-in'
+      }`}
+    >
+      <div className="pointer-events-auto">
+        <Card className="border-stone-200 bg-white/95 shadow-xl backdrop-blur">
+          <CardHeader className="pb-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Sparkles className="h-4 w-4 text-amber-500" />
+                  {renderedPrompt.mode === 'update' ? 'Update this rule too?' : 'Save this as a rule?'}
+                </CardTitle>
+                <CardDescription>
+                  {renderedPrompt.mode === 'update'
+                    ? `You changed a rule-hit transaction. Update "${renderedPrompt.ruleName}" so future imports use this category too.`
+                    : `You manually categorized an HTT transaction. Save it as a reusable rule for ${renderedPrompt.billTypeName || 'this bill type'}.`}
+                </CardDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={onDismiss} className="h-8 w-8 rounded-full">
+                <XCircle className="h-4 w-4" />
+                <span className="sr-only">Dismiss rule suggestion</span>
+              </Button>
             </div>
-            <Button variant="ghost" size="icon" onClick={onDismiss} className="h-8 w-8 rounded-full">
-              <XCircle className="h-4 w-4" />
-              <span className="sr-only">Dismiss rule suggestion</span>
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 pt-4">
-          <p className="text-sm text-stone-600">
-            Category: <span className="font-medium text-stone-900">{prompt.categoryName}</span>
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" onClick={onDismiss}>
-              Not now
-            </Button>
-            <Button onClick={onApply}>{actionLabel}</Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent className="space-y-3 pt-4">
+            <p className="text-sm text-stone-600">
+              Category: <span className="font-medium text-stone-900">{renderedPrompt.categoryName}</span>
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={onDismiss}>
+                Not now
+              </Button>
+              <Button onClick={onApply}>
+                {renderedPrompt.mode === 'update' ? 'Edit Rule' : 'Create Rule'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
+
+function getTransactionSelectValue(transaction, categories) {
+  if (transaction.categoryName === IGNORE_CATEGORY_NAME) {
+    return IGNORE_CATEGORY_VALUE;
+  }
+
+  return transaction.categoryId &&
+    categories.find((category) => category.id === transaction.categoryId)
+    ? transaction.categoryId
+    : 'uncategorized';
+}
+
+const TransactionReviewRow = memo(function TransactionReviewRow({
+  transaction,
+  categories,
+  onCategoryChange,
+}) {
+  const [selectedValue, setSelectedValue] = useState(() =>
+    getTransactionSelectValue(transaction, categories)
+  );
+  const originalCategoryLabel = getOriginalCategoryLabel(transaction, categories);
+  const ignored = isIgnoredTransaction(transaction);
+
+  useEffect(() => {
+    setSelectedValue(getTransactionSelectValue(transaction, categories));
+  }, [categories, transaction]);
+
+  return (
+    <div
+      className={`flex flex-col items-start justify-between rounded-lg border p-3 shadow-sm md:flex-row md:items-center ${
+        ignored
+          ? 'border-slate-300 bg-slate-100 text-slate-500'
+          : isUncategorizedTransaction(transaction)
+            ? 'bg-[#B2DAFF]'
+            : ''
+      }`}
+    >
+      <div className="mb-2 flex-1 md:mb-0">
+        <div className={`text-lg font-medium ${ignored ? 'text-slate-600' : ''}`}>{transaction.description}</div>
+        <div className={`text-sm ${ignored ? 'text-slate-500' : 'text-gray-600'}`}>
+          {transaction.date.toLocaleString()} • {transaction.amount} CNY
+          {transaction.counterparty && ` • ${transaction.counterparty}`}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <TransactionTypeBadge transaction={transaction} />
+          {ignored && <Badge variant="outline" className="border-slate-300 bg-slate-200 text-slate-700">ignored</Badge>}
+          {transaction.matchedRuleName && (
+            <span className={`text-sm ${ignored ? 'text-slate-500' : 'text-gray-500'}`}>
+              Matched rule: <span className="font-medium">{transaction.matchedRuleName}</span>
+            </span>
+          )}
+          {originalCategoryLabel && (
+            <span className={`text-sm ${ignored ? 'text-slate-500' : 'text-gray-500'}`}>
+              Original: <span className="font-medium">{originalCategoryLabel}</span>
+            </span>
+          )}
+          {ignored && (
+            <span className="text-sm text-slate-500">
+              This transaction will be skipped unless you choose another category.
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex w-full flex-col items-start gap-2 md:w-auto md:min-w-[220px]">
+        <Select
+          value={selectedValue}
+          onValueChange={(value) => {
+            setSelectedValue(value);
+            onCategoryChange(transaction.id, value);
+          }}
+        >
+          <SelectTrigger className="w-full md:w-[220px]">
+            <SelectValue placeholder="Select Category" />
+          </SelectTrigger>
+          <SelectContent>
+            <CategorySelectContent
+              transaction={transaction}
+              categories={categories}
+            />
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+});
 
 export default function ImportReviewView({
   displayedTransactions,
@@ -177,8 +291,6 @@ export default function ImportReviewView({
   showDebug,
   debugPanelProps,
 }) {
-  const expenseCategories = categories.filter((category) => category.type === 'expense');
-  const incomeCategories = categories.filter((category) => category.type === 'income');
   const hasUncategorizedTransactions = displayedTransactions.some(isUncategorizedTransaction);
 
   return (
@@ -216,71 +328,13 @@ export default function ImportReviewView({
         <CardContent>
           <div className="max-h-[70vh] space-y-4 overflow-y-auto">
             {displayedTransactions.map((transaction) => {
-              const originalCategoryLabel = getOriginalCategoryLabel(transaction, categories);
-              const ignored = isIgnoredTransaction(transaction);
-
               return (
-                <div
+                <TransactionReviewRow
                   key={transaction.id}
-                  className={`flex flex-col items-start justify-between rounded-lg border p-3 shadow-sm md:flex-row md:items-center ${
-                    ignored
-                      ? 'border-slate-300 bg-slate-100 text-slate-500'
-                      : isUncategorizedTransaction(transaction)
-                        ? 'bg-[#B2DAFF]'
-                        : ''
-                  }`}
-                >
-                  <div className="mb-2 flex-1 md:mb-0">
-                    <div className={`text-lg font-medium ${ignored ? 'text-slate-600' : ''}`}>{transaction.description}</div>
-                    <div className={`text-sm ${ignored ? 'text-slate-500' : 'text-gray-600'}`}>
-                      {transaction.date.toLocaleString()} • {transaction.amount} CNY
-                      {transaction.counterparty && ` • ${transaction.counterparty}`}
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <TransactionTypeBadge transaction={transaction} />
-                      {ignored && <Badge variant="outline" className="border-slate-300 bg-slate-200 text-slate-700">ignored</Badge>}
-                      {transaction.matchedRuleName && (
-                        <span className={`text-sm ${ignored ? 'text-slate-500' : 'text-gray-500'}`}>
-                          Matched rule: <span className="font-medium">{transaction.matchedRuleName}</span>
-                        </span>
-                      )}
-                      {originalCategoryLabel && (
-                        <span className={`text-sm ${ignored ? 'text-slate-500' : 'text-gray-500'}`}>
-                          Original: <span className="font-medium">{originalCategoryLabel}</span>
-                        </span>
-                      )}
-                      {ignored && (
-                        <span className="text-sm text-slate-500">
-                          This transaction will be skipped unless you choose another category.
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex w-full flex-col items-start gap-2 md:w-auto md:min-w-[220px]">
-                    <Select
-                      value={
-                        transaction.categoryName === IGNORE_CATEGORY_NAME
-                          ? IGNORE_CATEGORY_VALUE
-                          : transaction.categoryId &&
-                            categories.find((category) => category.id === transaction.categoryId)
-                          ? transaction.categoryId
-                          : 'uncategorized'
-                      }
-                      onValueChange={(value) => onCategoryChange(transaction.id, value)}
-                    >
-                      <SelectTrigger className="w-full md:w-[220px]">
-                        <SelectValue placeholder="Select Category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <CategorySelectContent
-                          transaction={transaction}
-                          expenseCategories={expenseCategories}
-                          incomeCategories={incomeCategories}
-                        />
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                  transaction={transaction}
+                  categories={categories}
+                  onCategoryChange={onCategoryChange}
+                />
               );
             })}
           </div>

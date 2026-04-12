@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -18,6 +18,7 @@ import ImportSetupView from '@/features/import/components/ImportSetupView';
 import ImportProgressView from '@/features/import/components/ImportProgressView';
 import ImportReviewView from '@/features/import/components/ImportReviewView';
 import ImportResultsView from '@/features/import/components/ImportResultsView';
+import ImportRuleEditorDialog from '@/features/import/components/ImportRuleEditorDialog';
 import { useTransactionSuggestionScroll } from '@/features/import/hooks/useTransactionSuggestionScroll';
 import { importTransactionsToLedger } from '@/features/import/utils/importTransactions';
 import { parseImportedFile } from '@/features/import/utils/parseImportedTransactions';
@@ -29,9 +30,12 @@ import {
 } from '@/features/import/utils/reviewTransactions';
 import {
   buildCreateRuleSuggestion,
-  buildUpdateRulePatch,
 } from '@/features/import/utils/ruleSuggestions';
-import { IGNORE_CATEGORY_NAME } from '@/features/categorization/ruleEngine';
+import {
+  createEmptyRuleDraft,
+  hydrateRule,
+  IGNORE_CATEGORY_NAME,
+} from '@/features/categorization/ruleEngine';
 
 function createUnreviewedTransactions(transactions) {
   return transactions.map((transaction) => ({
@@ -66,6 +70,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
   const [ruleEngineSettings, setRuleEngineSettings] = useState(null);
 
   const [displayedTransactions, setDisplayedTransactions] = useState([]);
+  const [parsedTransactions, setParsedTransactions] = useState([]);
   const [reviewingTransactions, setReviewingTransactions] = useState(false);
   const [categorizationProcessing, setCategorizationProcessing] = useState(false);
   const [processingTitle, setProcessingTitle] = useState('Categorizing imported transactions...');
@@ -75,8 +80,12 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
   const [categorizationUsage, setCategorizationUsage] = useState(null);
   const [debugInfo, setDebugInfo] = useState(null);
   const [ruleSuggestionPrompt, setRuleSuggestionPrompt] = useState(null);
+  const [ruleEditorState, setRuleEditorState] = useState(null);
+  const [savingRuleEditor, setSavingRuleEditor] = useState(false);
+  const [ruleEditorError, setRuleEditorError] = useState('');
 
   const abortControllerRef = useRef(null);
+  const displayedTransactionsRef = useRef([]);
   const { getTransactionRef } = useTransactionSuggestionScroll(
     displayedTransactions,
     categorizationProcessing
@@ -97,6 +106,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     setImportResults(null);
     setError('');
     setSuccess((previous) => (keepSuccessMessage ? previous : ''));
+    setParsedTransactions([]);
     setDisplayedTransactions([]);
     setReviewingTransactions(false);
     setCategorizationProcessing(false);
@@ -107,6 +117,9 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     setCategorizationUsage(null);
     setDebugInfo(null);
     setRuleSuggestionPrompt(null);
+    setRuleEditorState(null);
+    setSavingRuleEditor(false);
+    setRuleEditorError('');
   }
 
   useEffect(() => {
@@ -175,13 +188,17 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
   }, []);
 
   useEffect(() => {
+    displayedTransactionsRef.current = displayedTransactions;
+  }, [displayedTransactions]);
+
+  useEffect(() => {
     if (!ruleSuggestionPrompt) {
       return undefined;
     }
 
     const timer = setTimeout(() => {
       setRuleSuggestionPrompt(null);
-    }, 7000);
+    }, 11000);
 
     return () => clearTimeout(timer);
   }, [ruleSuggestionPrompt]);
@@ -198,21 +215,23 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     ruleEngineSettings?.billConfigs?.[0] ||
     null;
 
-  async function runCategorization(transactions) {
+  async function runCategorization(transactions, options = {}) {
     setStreamingContent('');
     setStreamingReasoningContent('');
     setStreamingFinishReason('');
     setCategorizationUsage(null);
     setDebugInfo(null);
     setProcessingTitle(
-      CATEGORIZATION_STATUS_LABELS[categorizationEngineId] || 'Categorizing imported transactions...'
+      options.overrideTitle ||
+        CATEGORIZATION_STATUS_LABELS[categorizationEngineId] ||
+        'Categorizing imported transactions...'
     );
 
     try {
       const result = await categorizationEngine.run({
         transactions,
         categories,
-        rules: ruleEngineSettings?.rules,
+        rules: options.overrideRules || ruleEngineSettings?.rules,
         systemPrompt,
         apiKey,
         thinkingModeEnabled,
@@ -292,6 +311,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         throw new Error('No valid transactions were found in the uploaded file.');
       }
 
+      setParsedTransactions(nextParsedTransactions);
+
       if (categorizationEnabled) {
         setDisplayedTransactions(createPendingDisplayedTransactions(nextParsedTransactions));
         setCategorizationProcessing(true);
@@ -352,33 +373,43 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
 
   function handleCancelReview() {
     setReviewingTransactions(false);
+    setParsedTransactions([]);
     setDisplayedTransactions([]);
     setFile(null);
     setError('');
     setSuccess('Import cancelled.');
     setRuleSuggestionPrompt(null);
+    setRuleEditorState(null);
+    setRuleEditorError('');
   }
 
   function handleImportMore() {
     setImportResults(null);
     setFile(null);
+    setParsedTransactions([]);
     setDisplayedTransactions([]);
     setImportProgress(0);
     setError('');
     setSuccess('');
     setRuleSuggestionPrompt(null);
+    setRuleEditorState(null);
+    setRuleEditorError('');
   }
 
-  function handleCategoryChange(transactionId, nextCategoryId) {
-    const currentTransaction = displayedTransactions.find((transaction) => transaction.id === transactionId);
+  const handleCategoryChange = useCallback((transactionId, nextCategoryId) => {
+    const currentTransaction = displayedTransactionsRef.current.find(
+      (transaction) => transaction.id === transactionId
+    );
     const matchedCategory =
       nextCategoryId === IGNORE_CATEGORY_VALUE
         ? { id: IGNORE_CATEGORY_VALUE, name: IGNORE_CATEGORY_NAME }
         : categories.find((category) => category.id === nextCategoryId);
 
-    setDisplayedTransactions((previousTransactions) =>
-      updateReviewedCategory(previousTransactions, transactionId, nextCategoryId, categories)
-    );
+    startTransition(() => {
+      setDisplayedTransactions((previousTransactions) =>
+        updateReviewedCategory(previousTransactions, transactionId, nextCategoryId, categories)
+      );
+    });
 
     if (!currentTransaction || nextCategoryId === 'uncategorized' || !matchedCategory) {
       setRuleSuggestionPrompt(null);
@@ -397,7 +428,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
       return;
     }
 
-    if (!currentTransaction.categoryId || currentTransaction.categoryName === 'HTT') {
+    if (currentTransaction.categoryId !== nextCategoryId || currentTransaction.categoryName === 'HTT') {
       setRuleSuggestionPrompt({
         mode: 'create',
         transactionId,
@@ -409,6 +440,194 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     }
 
     setRuleSuggestionPrompt(null);
+    setRuleEditorState(null);
+    setRuleEditorError('');
+  }, [categories]);
+
+  function updateRuleEditorDraft(patch) {
+    setRuleEditorState((currentState) => (
+      currentState
+        ? {
+            ...currentState,
+            ruleDraft: hydrateRule({
+              ...currentState.ruleDraft,
+              ...patch,
+            }),
+          }
+        : currentState
+    ));
+  }
+
+  function addRuleEditorCondition() {
+    setRuleEditorState((currentState) => {
+      if (!currentState) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        ruleDraft: hydrateRule({
+          ...currentState.ruleDraft,
+          conditions: [
+            ...(currentState.ruleDraft.conditions || []),
+            {
+              id: createEmptyRuleDraft().conditions[0].id,
+              field: 'description',
+              matcher: 'contains',
+              pattern: '',
+            },
+          ],
+        }),
+      };
+    });
+  }
+
+  function updateRuleEditorCondition(conditionId, patch) {
+    setRuleEditorState((currentState) => {
+      if (!currentState) {
+        return currentState;
+      }
+
+      return {
+        ...currentState,
+        ruleDraft: hydrateRule({
+          ...currentState.ruleDraft,
+          conditions: (currentState.ruleDraft.conditions || []).map((condition) =>
+            condition.id === conditionId
+              ? {
+                  ...condition,
+                  ...patch,
+                }
+              : condition
+          ),
+        }),
+      };
+    });
+  }
+
+  function removeRuleEditorCondition(conditionId) {
+    setRuleEditorState((currentState) => {
+      if (!currentState) {
+        return currentState;
+      }
+
+      const nextConditions = (currentState.ruleDraft.conditions || []).filter(
+        (condition) => condition.id !== conditionId
+      );
+
+      return {
+        ...currentState,
+        ruleDraft: hydrateRule({
+          ...currentState.ruleDraft,
+          conditions:
+            nextConditions.length > 0 ? nextConditions : currentState.ruleDraft.conditions,
+        }),
+      };
+    });
+  }
+
+  function handleOpenRuleEditor() {
+    if (!ruleSuggestionPrompt || !ruleEngineSettings) {
+      return;
+    }
+
+    let ruleDraft;
+
+    if (ruleSuggestionPrompt.mode === 'create') {
+      const transaction = displayedTransactions.find(
+        (candidate) => candidate.id === ruleSuggestionPrompt.transactionId
+      );
+      const category =
+        ruleSuggestionPrompt.categoryId === IGNORE_CATEGORY_VALUE
+          ? { id: IGNORE_CATEGORY_VALUE, name: IGNORE_CATEGORY_NAME }
+          : categories.find((candidate) => candidate.id === ruleSuggestionPrompt.categoryId);
+
+      if (!transaction || !category) {
+        return;
+      }
+
+      ruleDraft = buildCreateRuleSuggestion({
+        transaction,
+        category,
+        existingRules: ruleEngineSettings.rules,
+      });
+    } else {
+      const existingRule = ruleEngineSettings.rules.find(
+        (rule) => rule.id === ruleSuggestionPrompt.ruleId
+      );
+
+      if (!existingRule) {
+        return;
+      }
+
+      ruleDraft = hydrateRule({
+        ...existingRule,
+        category: ruleSuggestionPrompt.categoryName,
+      });
+    }
+
+    setRuleEditorError('');
+    setRuleSuggestionPrompt(null);
+    setRuleEditorState({
+      ...ruleSuggestionPrompt,
+      ruleDraft,
+    });
+  }
+
+  async function handleSaveRuleEditor() {
+    if (!currentUser || !ruleEditorState || !ruleEngineSettings) {
+      return;
+    }
+
+    setSavingRuleEditor(true);
+    setRuleEditorError('');
+
+    try {
+      let nextRuleEngineSettings = ruleEngineSettings;
+
+      if (ruleEditorState.mode === 'create') {
+        nextRuleEngineSettings = {
+          ...ruleEngineSettings,
+          rules: [...ruleEngineSettings.rules, hydrateRule(ruleEditorState.ruleDraft)],
+        };
+        setSuccess(`Saved new rule "${ruleEditorState.ruleDraft.name}".`);
+      } else {
+        nextRuleEngineSettings = {
+          ...ruleEngineSettings,
+          rules: ruleEngineSettings.rules.map((rule) =>
+            rule.id === ruleEditorState.ruleId
+              ? hydrateRule({
+                  ...rule,
+                  ...ruleEditorState.ruleDraft,
+                })
+              : rule
+          ),
+        };
+        setSuccess(`Updated rule "${ruleEditorState.ruleDraft.name || ruleEditorState.ruleName}".`);
+      }
+
+      await saveCategorizationSettings(currentUser, {
+        ruleEngineSettings: nextRuleEngineSettings,
+      });
+      setRuleEngineSettings(nextRuleEngineSettings);
+      setRuleEditorState(null);
+
+      if (categorizationEngineId === 'rules' && parsedTransactions.length > 0) {
+        setReviewingTransactions(false);
+        setImporting(true);
+        setCategorizationProcessing(true);
+        abortControllerRef.current = new AbortController();
+        await runCategorization(parsedTransactions, {
+          overrideRules: nextRuleEngineSettings.rules,
+          overrideTitle: 'Re-running categorization with saved rules...',
+        });
+      }
+    } catch (saveError) {
+      console.error('Failed to save import rule editor changes:', saveError);
+      setRuleEditorError(saveError.message || 'Failed to save the rule.');
+    } finally {
+      setSavingRuleEditor(false);
+    }
   }
 
   function handleExitImport() {
@@ -417,77 +636,18 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     onBack?.();
   }
 
-  async function handleApplyRuleSuggestion() {
-    if (!currentUser || !ruleSuggestionPrompt) {
-      return;
-    }
-
-    const transaction = displayedTransactions.find(
-      (candidate) => candidate.id === ruleSuggestionPrompt.transactionId
-    );
-    const category =
-      ruleSuggestionPrompt.categoryId === IGNORE_CATEGORY_VALUE
-        ? { id: IGNORE_CATEGORY_VALUE, name: IGNORE_CATEGORY_NAME }
-        : categories.find((candidate) => candidate.id === ruleSuggestionPrompt.categoryId);
-
-    if (!transaction || !category || !ruleEngineSettings) {
-      setRuleSuggestionPrompt(null);
-      return;
-    }
-
-    try {
-      let nextRuleEngineSettings = ruleEngineSettings;
-
-      if (ruleSuggestionPrompt.mode === 'create') {
-        const nextRule = buildCreateRuleSuggestion({
-          transaction,
-          category,
-          existingRules: ruleEngineSettings.rules,
-        });
-
-        nextRuleEngineSettings = {
-          ...ruleEngineSettings,
-          rules: [...ruleEngineSettings.rules, nextRule],
-        };
-        setSuccess(`Saved new rule "${nextRule.name}".`);
-      } else {
-        nextRuleEngineSettings = {
-          ...ruleEngineSettings,
-          rules: ruleEngineSettings.rules.map((rule) =>
-            rule.id === ruleSuggestionPrompt.ruleId
-              ? {
-                  ...rule,
-                  ...buildUpdateRulePatch({ category }),
-                }
-              : rule
-          ),
-        };
-        setSuccess(`Updated rule "${ruleSuggestionPrompt.ruleName}".`);
-      }
-
-      await saveCategorizationSettings(currentUser, {
-        ruleEngineSettings: nextRuleEngineSettings,
-      });
-      setRuleEngineSettings(nextRuleEngineSettings);
-      setRuleSuggestionPrompt(null);
-    } catch (saveError) {
-      console.error('Failed to save import rule suggestion:', saveError);
-      setError(saveError.message || 'Failed to save the rule suggestion.');
-    }
-  }
-
   const canExitImport = !importing || categorizationProcessing || reviewingTransactions || importResults;
 
+  let content;
+
   if (!currentLedger) {
-    return (
+    content = (
       <div className="p-6 text-center text-gray-500">
         Please select a ledger before importing transactions.
       </div>
     );
-  }
-
-  if (importing) {
-    return (
+  } else if (importing) {
+    content = (
       <ImportProgressView
         title={categorizationProcessing ? processingTitle : 'Importing Transactions...'}
         displayedTransactions={displayedTransactions}
@@ -503,10 +663,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         debugPanelProps={debugPanelProps}
       />
     );
-  }
-
-  if (reviewingTransactions) {
-    return (
+  } else if (reviewingTransactions) {
+    content = (
       <ImportReviewView
         displayedTransactions={displayedTransactions}
         categories={categories}
@@ -516,40 +674,64 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         onCategoryChange={handleCategoryChange}
         ruleSuggestionPrompt={ruleSuggestionPrompt}
         onDismissRuleSuggestion={() => setRuleSuggestionPrompt(null)}
-        onApplyRuleSuggestion={handleApplyRuleSuggestion}
+        onApplyRuleSuggestion={handleOpenRuleEditor}
         showDebug={debugModeEnabled && categorizationEngine.supportsStreaming}
         debugPanelProps={debugPanelProps}
       />
     );
-  }
-
-  if (importResults) {
-    return (
+  } else if (importResults) {
+    content = (
       <ImportResultsView
         importResults={importResults}
         onImportMore={handleImportMore}
         onBack={handleExitImport}
       />
     );
+  } else {
+    content = (
+      <ImportSetupView
+        file={file}
+        onFileUpload={handleFileUpload}
+        error={error}
+        success={success}
+        onBack={onBack}
+        billConfigs={ruleEngineSettings?.billConfigs || []}
+        selectedBillConfigId={selectedBillConfigId}
+        setSelectedBillConfigId={setSelectedBillConfigId}
+        selectedBillConfig={selectedBillConfig}
+        categorizationEnabled={categorizationEnabled}
+        categorizationStatusMessage={
+          categorizationEnabled
+            ? getCategorizationStatusMessage(categorizationEngineId, ruleEngineSettings)
+            : ''
+        }
+      />
+    );
   }
 
   return (
-    <ImportSetupView
-      file={file}
-      onFileUpload={handleFileUpload}
-      error={error}
-      success={success}
-      onBack={onBack}
-      billConfigs={ruleEngineSettings?.billConfigs || []}
-      selectedBillConfigId={selectedBillConfigId}
-      setSelectedBillConfigId={setSelectedBillConfigId}
-      selectedBillConfig={selectedBillConfig}
-      categorizationEnabled={categorizationEnabled}
-      categorizationStatusMessage={
-        categorizationEnabled
-          ? getCategorizationStatusMessage(categorizationEngineId, ruleEngineSettings)
-          : ''
-      }
-    />
+    <>
+      {content}
+      <ImportRuleEditorDialog
+        open={Boolean(ruleEditorState)}
+        mode={ruleEditorState?.mode || 'create'}
+        ruleDraft={ruleEditorState?.ruleDraft || null}
+        categories={categories}
+        billConfigs={ruleEngineSettings?.billConfigs || []}
+        saving={savingRuleEditor}
+        error={ruleEditorError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRuleEditorState(null);
+            setRuleEditorError('');
+          }
+        }}
+        onRuleChange={updateRuleEditorDraft}
+        onAddCondition={addRuleEditorCondition}
+        onConditionChange={updateRuleEditorCondition}
+        onRemoveCondition={removeRuleEditorCondition}
+        onSave={handleSaveRuleEditor}
+      />
+    </>
   );
 }

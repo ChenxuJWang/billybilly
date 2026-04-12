@@ -32,23 +32,20 @@ import { Textarea } from '@/components/ui/textarea.jsx';
 import { db } from '@/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
+import RuleEditorFields from '@/features/categorization/components/RuleEditorFields';
+import { isRuleReadyToSave } from '@/features/categorization/utils/ruleEditor';
 import {
   applyRulesToTransactions,
   createEmptyBillConfig,
   createEmptyCategoryMapping,
   createEmptyRuleDraft,
   describeCondition,
-  FIELD_OPTIONS,
   getPreviewLines,
   hydrateRuleEngineSettings,
-  INTERNAL_TRANSACTION_TYPE_OPTIONS,
-  MATCHER_HELP,
-  MATCHER_OPTIONS,
   parseBillText,
   parseRuleEngineSettingsFromYaml,
   readBillFileText,
   REQUIRED_FIELDS,
-  RULE_LOGIC_OPTIONS,
   serializeRuleEngineSettingsToYaml,
 } from '@/features/categorization/ruleEngine';
 
@@ -337,58 +334,6 @@ export default function RuleEngineSettingsPanel({
       hitCounts: {},
     });
     setPreviewError('');
-  }
-
-  function getRuleCategorySections(transactionType) {
-    const ignoreCategories = (() => {
-      const existingIgnore = categories.find((category) => category.name === 'IGNORE');
-      return existingIgnore
-        ? [existingIgnore]
-        : [{ id: 'ignore-special', name: 'IGNORE', type: 'special' }];
-    })();
-    const expenseCategories = categories.filter(
-      (category) => category.type === 'expense' && category.name !== 'IGNORE'
-    );
-    const incomeCategories = categories.filter(
-      (category) => category.type === 'income' && category.name !== 'IGNORE'
-    );
-
-    if (transactionType === 'Expense') {
-      return [
-        { label: 'Special', items: ignoreCategories },
-        { label: 'Expense Categories', items: expenseCategories },
-      ].filter((section) => section.items.length > 0);
-    }
-
-    if (transactionType === 'Income') {
-      return [
-        { label: 'Special', items: ignoreCategories },
-        { label: 'Income Categories', items: incomeCategories },
-      ].filter((section) => section.items.length > 0);
-    }
-
-    return [
-      { label: 'Special', items: ignoreCategories },
-      { label: 'Expense Categories', items: expenseCategories },
-      { label: 'Income Categories', items: incomeCategories },
-    ].filter((section) => section.items.length > 0);
-  }
-
-  function hasVisibleRuleCategoryOption(transactionType, categoryName) {
-    return getRuleCategorySections(transactionType).some((section) =>
-      section.items.some((category) => category.name === categoryName)
-    );
-  }
-
-  function isRuleReadyToSave(rule) {
-    const hasCategory = String(rule?.category || '').trim().length > 0;
-    const conditions = Array.isArray(rule?.conditions) ? rule.conditions : [];
-    const hasConditions = conditions.length > 0;
-    const allConditionsFilled = conditions.every(
-      (condition) => String(condition?.pattern || '').trim().length > 0
-    );
-
-    return hasCategory && hasConditions && allConditionsFilled;
   }
 
   const invalidRuleCount = localSettings.rules.filter((rule) => !isRuleReadyToSave(rule)).length;
@@ -1343,238 +1288,17 @@ export default function RuleEngineSettingsPanel({
                     </div>
                   </AccordionTrigger>
                   <AccordionContent className="space-y-4">
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                      <div className="space-y-2">
-                        <Label>Rule name</Label>
-                        <Input
-                          value={rule.name}
-                          onChange={(event) => updateRule(rule.id, { name: event.target.value })}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Category</Label>
-                        <Select
-                          value={rule.category || '__empty__'}
-                          onValueChange={(nextValue) =>
-                            updateRule(rule.id, {
-                              category: nextValue === '__empty__' ? '' : nextValue,
-                            })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__empty__">No category yet</SelectItem>
-                            {getRuleCategorySections(rule.transactionType || 'Expense').map((section, index) => (
-                              <React.Fragment key={`${rule.id}-${section.label}`}>
-                                {index > 0 && <SelectSeparator />}
-                                <SelectGroup>
-                                  <SelectLabel>{section.label}</SelectLabel>
-                                  {section.items.map((category) => (
-                                    <SelectItem
-                                      key={`${rule.id}-${section.label}-${category.id}`}
-                                      value={category.name}
-                                    >
-                                      {category.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectGroup>
-                              </React.Fragment>
-                            ))}
-                            {rule.category &&
-                              !hasVisibleRuleCategoryOption(
-                                rule.transactionType || 'Expense',
-                                rule.category
-                              ) && (
-                                <>
-                                  <SelectSeparator />
-                                  <SelectGroup>
-                                    <SelectLabel>Current Value</SelectLabel>
-                                    <SelectItem value={rule.category}>{rule.category}</SelectItem>
-                                  </SelectGroup>
-                                </>
-                              )}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Transaction type</Label>
-                        <Select
-                          value={rule.transactionType || 'Expense'}
-                          onValueChange={(nextValue) =>
-                            updateRule(rule.id, { transactionType: nextValue })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {INTERNAL_TRANSACTION_TYPE_OPTIONS.map((option) => (
-                              <SelectItem key={`${rule.id}-${option.value}`} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Scope</Label>
-                        <Select
-                          value={rule.scope || 'all'}
-                          onValueChange={(nextValue) => updateRule(rule.id, { scope: nextValue })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">All bill types</SelectItem>
-                            {localSettings.billConfigs.map((config) => (
-                              <SelectItem key={`${rule.id}-${config.id}`} value={config.id}>
-                                {config.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="flex items-end justify-between gap-3 rounded-md border bg-slate-50 px-3 py-2">
-                        <div>
-                          <Label className="text-sm">Enabled</Label>
-                          <p className="text-xs text-slate-500">
-                            Disable a rule without deleting it.
-                          </p>
-                        </div>
-                        <Switch
-                          checked={rule.enabled}
-                          onCheckedChange={(nextValue) => updateRule(rule.id, { enabled: nextValue })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Rule logic</Label>
-                        <Select
-                          value={rule.logic || 'all'}
-                          onValueChange={(nextValue) => updateRule(rule.id, { logic: nextValue })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {RULE_LOGIC_OPTIONS.map((option) => (
-                              <SelectItem key={`${rule.id}-${option.value}`} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Notes</Label>
-                        <Textarea
-                          rows={2}
-                          value={rule.notes || ''}
-                          onChange={(event) => updateRule(rule.id, { notes: event.target.value })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 rounded-lg border bg-slate-50 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">Conditions</p>
-                          <p className="text-sm text-slate-600">
-                            Pick a field, matcher, and pattern. {MATCHER_HELP.containsAll}
-                          </p>
-                        </div>
-                        <Button variant="outline" size="sm" onClick={() => addRuleCondition(rule.id)}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Condition
-                        </Button>
-                      </div>
-
-                      {(rule.conditions || []).map((condition) => (
-                        <div
-                          key={condition.id}
-                          className="grid gap-3 rounded-md border bg-white p-3 lg:grid-cols-[1fr_1fr_2fr_auto]"
-                        >
-                          <div className="space-y-2">
-                            <Label>Field</Label>
-                            <Select
-                              value={condition.field}
-                              onValueChange={(nextValue) =>
-                                updateRuleCondition(rule.id, condition.id, { field: nextValue })
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {FIELD_OPTIONS.map((option) => (
-                                  <SelectItem key={`${condition.id}-${option.value}`} value={option.value}>
-                                    {option.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Matcher</Label>
-                            <Select
-                              value={condition.matcher}
-                              onValueChange={(nextValue) =>
-                                updateRuleCondition(rule.id, condition.id, { matcher: nextValue })
-                              }
-                            >
-                              <SelectTrigger>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {MATCHER_OPTIONS.map((option) => (
-                                  <SelectItem key={`${condition.id}-${option.value}`} value={option.value}>
-                                    {option.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <p className="text-xs text-slate-500">
-                              {MATCHER_HELP[condition.matcher]}
-                            </p>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Pattern</Label>
-                            <Textarea
-                              rows={2}
-                              value={condition.pattern}
-                              onChange={(event) =>
-                                updateRuleCondition(rule.id, condition.id, {
-                                  pattern: event.target.value,
-                                })
-                              }
-                            />
-                          </div>
-
-                          <div className="flex items-end">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeRuleCondition(rule.id, condition.id)}
-                              disabled={(rule.conditions || []).length <= 1}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <RuleEditorFields
+                      rule={rule}
+                      categories={categories}
+                      billConfigs={localSettings.billConfigs}
+                      onRuleChange={(patch) => updateRule(rule.id, patch)}
+                      onAddCondition={() => addRuleCondition(rule.id)}
+                      onConditionChange={(conditionId, patch) =>
+                        updateRuleCondition(rule.id, conditionId, patch)
+                      }
+                      onRemoveCondition={(conditionId) => removeRuleCondition(rule.id, conditionId)}
+                    />
 
                     <div className="flex justify-end gap-2">
                       {dirtyPanels.includes('rules') && (
