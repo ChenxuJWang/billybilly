@@ -20,7 +20,10 @@ import { Label } from '@/components/ui/label.jsx';
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select.jsx';
@@ -37,7 +40,6 @@ import {
   describeCondition,
   FIELD_OPTIONS,
   getPreviewLines,
-  getRuleEngineCategoryOptions,
   hydrateRuleEngineSettings,
   INTERNAL_TRANSACTION_TYPE_OPTIONS,
   MATCHER_HELP,
@@ -87,13 +89,14 @@ export default function RuleEngineSettingsPanel({
   const { currentLedger, canEdit } = useLedger();
   const yamlImportInputRef = useRef(null);
   const newConfigInputRef = useRef(null);
+  const pendingScrollRuleIdRef = useRef('');
 
   const [localSettings, setLocalSettings] = useState(() => hydrateRuleEngineSettings(value));
   const [dirty, setDirty] = useState(false);
+  const [dirtyPanels, setDirtyPanels] = useState([]);
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [newCustomCategory, setNewCustomCategory] = useState('');
   const [openPanels, setOpenPanels] = useState([]);
   const [openRuleItems, setOpenRuleItems] = useState([]);
   const [previewFile, setPreviewFile] = useState(null);
@@ -114,6 +117,7 @@ export default function RuleEngineSettingsPanel({
   useEffect(() => {
     setLocalSettings(hydrateRuleEngineSettings(value));
     setDirty(false);
+    setDirtyPanels([]);
     setIsEditingConfig(false);
   }, [value]);
 
@@ -135,11 +139,14 @@ export default function RuleEngineSettingsPanel({
     localSettings.billConfigs.find((config) => config.id === localSettings.selectedBillConfigId) ||
     localSettings.billConfigs[0] ||
     null;
-  const categoryOptions = getRuleEngineCategoryOptions(categories, localSettings.customCategories);
+  const categoryOptions = Array.from(
+    new Set(categories.map((category) => category.name).filter(Boolean))
+  ).sort((left, right) => left.localeCompare(right));
   const currentConfigLabel = localSettings.configFileName || selectedConfig?.name || 'None';
   const unsyncedLedgerCategories = localSettings.customCategories.filter(
     (category) => !categories.some((ledgerCategory) => ledgerCategory.name === category)
   );
+  const hasSamplePreview = Boolean(previewFile);
   const mappingOptions = Array.from(
     new Set([
       ...previewData.headers,
@@ -241,13 +248,36 @@ export default function RuleEngineSettingsPanel({
     };
   }, [categories, localSettings.rules, previewFile, selectedConfig]);
 
-  function updateSettings(updater) {
+  useEffect(() => {
+    if (!pendingScrollRuleIdRef.current) {
+      return;
+    }
+
+    const ruleId = pendingScrollRuleIdRef.current;
+    const frameId = window.requestAnimationFrame(() => {
+      const ruleElement = document.getElementById(`rule-item-${ruleId}`);
+      ruleElement?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+      pendingScrollRuleIdRef.current = '';
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [localSettings.rules, openRuleItems]);
+
+  function updateSettings(updater, panelId = null) {
     setLocalSettings((currentSettings) => {
       const nextSettings =
         typeof updater === 'function' ? updater(currentSettings) : updater;
       return hydrateRuleEngineSettings(nextSettings);
     });
     setDirty(true);
+    if (panelId) {
+      setDirtyPanels((currentPanels) =>
+        currentPanels.includes(panelId) ? currentPanels : [...currentPanels, panelId]
+      );
+    }
   }
 
   async function persistSettings(nextSettings = localSettings, successMessage = 'Rule engine settings saved.') {
@@ -259,6 +289,7 @@ export default function RuleEngineSettingsPanel({
       await onSaveRuleEngineSettings(hydratedSettings);
       setLocalSettings(hydratedSettings);
       setDirty(false);
+      setDirtyPanels([]);
       setStatusMessage(successMessage);
     } catch (saveError) {
       setErrorMessage(saveError.message || 'Failed to save rule engine settings.');
@@ -294,8 +325,74 @@ export default function RuleEngineSettingsPanel({
 
     setMissingLedgerCategories(uniqueMissingCategories);
     setMissingLedgerDialogOpen(true);
-    ensurePanelOpen('categories');
   }
+
+  function clearPreviewState() {
+    setPreviewFile(null);
+    setPreviewData({
+      rawText: '',
+      headers: [],
+      missingMappings: [],
+      reviewedTransactions: [],
+      hitCounts: {},
+    });
+    setPreviewError('');
+  }
+
+  function getRuleCategorySections(transactionType) {
+    const ignoreCategories = (() => {
+      const existingIgnore = categories.find((category) => category.name === 'IGNORE');
+      return existingIgnore
+        ? [existingIgnore]
+        : [{ id: 'ignore-special', name: 'IGNORE', type: 'special' }];
+    })();
+    const expenseCategories = categories.filter(
+      (category) => category.type === 'expense' && category.name !== 'IGNORE'
+    );
+    const incomeCategories = categories.filter(
+      (category) => category.type === 'income' && category.name !== 'IGNORE'
+    );
+
+    if (transactionType === 'Expense') {
+      return [
+        { label: 'Special', items: ignoreCategories },
+        { label: 'Expense Categories', items: expenseCategories },
+      ].filter((section) => section.items.length > 0);
+    }
+
+    if (transactionType === 'Income') {
+      return [
+        { label: 'Special', items: ignoreCategories },
+        { label: 'Income Categories', items: incomeCategories },
+      ].filter((section) => section.items.length > 0);
+    }
+
+    return [
+      { label: 'Special', items: ignoreCategories },
+      { label: 'Expense Categories', items: expenseCategories },
+      { label: 'Income Categories', items: incomeCategories },
+    ].filter((section) => section.items.length > 0);
+  }
+
+  function hasVisibleRuleCategoryOption(transactionType, categoryName) {
+    return getRuleCategorySections(transactionType).some((section) =>
+      section.items.some((category) => category.name === categoryName)
+    );
+  }
+
+  function isRuleReadyToSave(rule) {
+    const hasCategory = String(rule?.category || '').trim().length > 0;
+    const conditions = Array.isArray(rule?.conditions) ? rule.conditions : [];
+    const hasConditions = conditions.length > 0;
+    const allConditionsFilled = conditions.every(
+      (condition) => String(condition?.pattern || '').trim().length > 0
+    );
+
+    return hasCategory && hasConditions && allConditionsFilled;
+  }
+
+  const invalidRuleCount = localSettings.rules.filter((rule) => !isRuleReadyToSave(rule)).length;
+  const canSaveRuleChanges = dirtyPanels.includes('rules') && invalidRuleCount === 0 && !saving;
 
   function updateSelectedConfig(patch) {
     if (!selectedConfig) {
@@ -312,7 +409,7 @@ export default function RuleEngineSettingsPanel({
             }
           : config
       ),
-    }));
+    }), 'configs');
   }
 
   function updateSelectedMapping(fieldKey, nextValue) {
@@ -384,6 +481,7 @@ export default function RuleEngineSettingsPanel({
             .filter(Boolean);
       setLocalSettings(importedSettings);
       setDirty(false);
+      clearPreviewState();
       await persistSettings(importedSettings, 'YAML config imported successfully.');
       openMissingLedgerDialog(importedCategoryNames);
       ensurePanelOpen('yaml');
@@ -396,7 +494,7 @@ export default function RuleEngineSettingsPanel({
 
   function handleYamlExport() {
     try {
-      const yamlText = serializeRuleEngineSettingsToYaml(localSettings);
+      const yamlText = serializeRuleEngineSettingsToYaml(localSettings, categories);
       const fileName = `rule-engine-config-${new Date().toISOString().slice(0, 10)}.yaml`;
       downloadTextFile(fileName, yamlText, 'application/yaml;charset=utf-8');
       setStatusMessage('YAML config exported.');
@@ -404,26 +502,6 @@ export default function RuleEngineSettingsPanel({
     } catch (exportError) {
       setErrorMessage(exportError.message || 'Failed to export the YAML config.');
     }
-  }
-
-  function handleAddCustomCategory() {
-    const nextCategory = newCustomCategory.trim();
-
-    if (!nextCategory) {
-      return;
-    }
-
-    if (categoryOptions.some((category) => category.toLowerCase() === nextCategory.toLowerCase())) {
-      setErrorMessage('That category name already exists.');
-      return;
-    }
-
-    updateSettings((currentSettings) => ({
-      ...currentSettings,
-      customCategories: [...currentSettings.customCategories, nextCategory],
-    }));
-    setNewCustomCategory('');
-    ensurePanelOpen('categories');
   }
 
   async function handleSaveMissingLedgerCategories() {
@@ -466,34 +544,6 @@ export default function RuleEngineSettingsPanel({
     }
   }
 
-  function handleRemoveCustomCategory(categoryToRemove) {
-    updateSettings((currentSettings) => ({
-      ...currentSettings,
-      customCategories: currentSettings.customCategories.filter(
-        (category) => category !== categoryToRemove
-      ),
-      rules: currentSettings.rules.map((rule) =>
-        rule.category === categoryToRemove
-          ? {
-              ...rule,
-              category: categoryOptions.find((category) => category !== categoryToRemove) || 'Uncategorized',
-            }
-          : rule
-      ),
-      billConfigs: currentSettings.billConfigs.map((config) => ({
-        ...config,
-        categoryMappings: config.categoryMappings.map((mapping) =>
-          mapping.target === categoryToRemove
-            ? {
-                ...mapping,
-                target: '',
-              }
-            : mapping
-        ),
-      })),
-    }));
-  }
-
   function createConfigFromSample(file) {
     const nextConfig = createEmptyBillConfig(formatConfigNameFromFile(file.name));
 
@@ -501,7 +551,7 @@ export default function RuleEngineSettingsPanel({
       ...currentSettings,
       billConfigs: [...currentSettings.billConfigs, nextConfig],
       selectedBillConfigId: nextConfig.id,
-    }));
+    }), 'configs');
     setPreviewFile(file);
     setIsEditingConfig(true);
     ensurePanelOpen('configs');
@@ -538,7 +588,8 @@ export default function RuleEngineSettingsPanel({
       ...currentSettings,
       billConfigs: [...currentSettings.billConfigs, duplicateConfig],
       selectedBillConfigId: duplicateConfig.id,
-    }));
+    }), 'configs');
+    clearPreviewState();
     setIsEditingConfig(true);
     ensurePanelOpen('configs');
   }
@@ -569,27 +620,23 @@ export default function RuleEngineSettingsPanel({
             }
           : rule
       ),
-    });
-    setPreviewFile(null);
-    setPreviewData({
-      rawText: '',
-      headers: [],
-      missingMappings: [],
-      reviewedTransactions: [],
-      hitCounts: {},
-    });
+    }, 'configs');
+    clearPreviewState();
     setIsEditingConfig(false);
   }
 
   function handleAddRule() {
-    const nextRule = createEmptyRuleDraft('all', categoryOptions[0] || 'Uncategorized');
+    const nextRule = createEmptyRuleDraft('all');
 
     updateSettings((currentSettings) => ({
       ...currentSettings,
-      rules: [...currentSettings.rules, nextRule],
-    }));
+      rules: [nextRule, ...currentSettings.rules],
+    }), 'rules');
     ensurePanelOpen('rules');
-    setOpenRuleItems((currentItems) => [...currentItems, nextRule.id]);
+    setOpenRuleItems((currentItems) =>
+      currentItems.includes(nextRule.id) ? currentItems : [nextRule.id, ...currentItems]
+    );
+    pendingScrollRuleIdRef.current = nextRule.id;
   }
 
   function updateRule(ruleId, patch) {
@@ -603,14 +650,22 @@ export default function RuleEngineSettingsPanel({
             }
           : rule
       ),
-    }));
+    }), 'rules');
   }
 
-  function deleteRule(ruleId) {
-    updateSettings((currentSettings) => ({
-      ...currentSettings,
-      rules: currentSettings.rules.filter((rule) => rule.id !== ruleId),
-    }));
+  async function deleteRule(ruleId) {
+    const nextSettings = hydrateRuleEngineSettings({
+      ...localSettings,
+      rules: localSettings.rules.filter((rule) => rule.id !== ruleId),
+    });
+
+    setLocalSettings(nextSettings);
+    setDirty(true);
+    setDirtyPanels((currentPanels) =>
+      currentPanels.includes('rules') ? currentPanels : [...currentPanels, 'rules']
+    );
+    setOpenRuleItems((currentItems) => currentItems.filter((itemId) => itemId !== ruleId));
+    await persistSettings(nextSettings, 'Rule deleted.');
   }
 
   function addRuleCondition(ruleId) {
@@ -632,7 +687,7 @@ export default function RuleEngineSettingsPanel({
             }
           : rule
       ),
-    }));
+    }), 'rules');
     setOpenRuleItems((currentItems) =>
       currentItems.includes(ruleId) ? currentItems : [...currentItems, ruleId]
     );
@@ -656,7 +711,7 @@ export default function RuleEngineSettingsPanel({
             }
           : rule
       ),
-    }));
+    }), 'rules');
   }
 
   function removeRuleCondition(ruleId, conditionId) {
@@ -676,7 +731,7 @@ export default function RuleEngineSettingsPanel({
           conditions: nextConditions.length > 0 ? nextConditions : rule.conditions,
         };
       }),
-    }));
+    }), 'rules');
   }
 
   return (
@@ -697,23 +752,19 @@ export default function RuleEngineSettingsPanel({
       />
 
       <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-2">
           <div>
             <p className="text-sm font-medium text-slate-900">Rule Engine Configuration</p>
             <p className="text-sm text-slate-600">
               Manage reusable bill configs, small rule adjustments, and YAML backups without leaving the main app.
             </p>
           </div>
-          <Button onClick={() => persistSettings()} disabled={!dirty || saving}>
-            <Save className="mr-2 h-4 w-4" />
-            {saving ? 'Saving...' : dirty ? 'Save Rule Engine Settings' : 'Saved'}
-          </Button>
         </div>
 
         <div className="grid gap-3 md:grid-cols-4">
           <StatCard title="Current Config" value={currentConfigLabel} />
           <StatCard title="Bill Configs" value={localSettings.billConfigs.length} />
-          <StatCard title="Custom Categories" value={localSettings.customCategories.length} />
+          <StatCard title="Ledger Categories" value={categories.length} />
           <StatCard title="Rules" value={localSettings.rules.length} />
         </div>
 
@@ -722,6 +773,24 @@ export default function RuleEngineSettingsPanel({
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               You have unsaved rule-engine changes. Save them here before relying on the import flow.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {unsyncedLedgerCategories.length > 0 && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {unsyncedLedgerCategories.length} YAML categories are still missing from the current ledger.
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openMissingLedgerDialog(unsyncedLedgerCategories)}
+              >
+                Save Missing To Ledger
+              </Button>
             </AlertDescription>
           </Alert>
         )}
@@ -770,7 +839,7 @@ export default function RuleEngineSettingsPanel({
               </Button>
             </div>
             <p className="text-sm text-slate-600">
-              The exported file includes the selected config, all bill configs, custom categories, and every rule.
+              The exported file includes the selected config, all bill configs, all ledger categories, and every rule.
             </p>
           </AccordionContent>
         </AccordionItem>
@@ -819,7 +888,8 @@ export default function RuleEngineSettingsPanel({
                         updateSettings((currentSettings) => ({
                           ...currentSettings,
                           selectedBillConfigId: nextConfigId,
-                        }));
+                        }), 'configs');
+                        clearPreviewState();
                         setIsEditingConfig(false);
                       }}
                     >
@@ -1192,77 +1262,20 @@ export default function RuleEngineSettingsPanel({
                     </div>
                   </div>
                 )}
+
+                {dirtyPanels.includes('configs') && (
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => persistSettings(localSettings, 'Bill config changes saved.')}
+                      disabled={saving}
+                    >
+                      <Save className="mr-2 h-4 w-4" />
+                      {saving ? 'Saving...' : 'Save Bill Config Changes'}
+                    </Button>
+                  </div>
+                )}
               </>
             )}
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="categories" className="px-4">
-          <AccordionTrigger className="hover:no-underline">
-            <div>
-              <p className="font-medium text-slate-900">Custom Categories</p>
-              <p className="text-sm text-slate-500">
-                Add lightweight labels for rules and YAML backups. Imports only auto-resolve categories that exist in the current ledger.
-              </p>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="space-y-4">
-            <div className="flex gap-3">
-              <Input
-                placeholder="Add a custom category"
-                value={newCustomCategory}
-                onChange={(event) => setNewCustomCategory(event.target.value)}
-              />
-              <Button variant="outline" onClick={handleAddCustomCategory}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add
-              </Button>
-              {unsyncedLedgerCategories.length > 0 && (
-                <Button
-                  variant="outline"
-                  onClick={() => openMissingLedgerDialog(unsyncedLedgerCategories)}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  Save Missing To Ledger
-                </Button>
-              )}
-            </div>
-
-            {unsyncedLedgerCategories.length > 0 && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  {unsyncedLedgerCategories.length} imported categories are not in this ledger yet, so they will not auto-resolve during import until you save them.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              {localSettings.customCategories.length === 0 && (
-                <Badge variant="outline">No custom categories yet</Badge>
-              )}
-              {localSettings.customCategories.map((category) => (
-                <div
-                  key={category}
-                  className="inline-flex items-center gap-2 rounded-full border bg-white px-3 py-1 text-sm"
-                >
-                  <span>{category}</span>
-                  {!categories.some((ledgerCategory) => ledgerCategory.name === category) && (
-                    <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                      Not in ledger
-                    </Badge>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveCustomCategory(category)}
-                    className="text-slate-400 hover:text-slate-900"
-                    aria-label={`Remove ${category}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
           </AccordionContent>
         </AccordionItem>
 
@@ -1279,7 +1292,9 @@ export default function RuleEngineSettingsPanel({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline">{localSettings.rules.filter((rule) => rule.enabled).length} enabled</Badge>
-                <Badge variant="outline">{Object.keys(previewData.hitCounts).length} hit in sample</Badge>
+                {hasSamplePreview && (
+                  <Badge variant="outline">{Object.keys(previewData.hitCounts).length} hit in sample</Badge>
+                )}
               </div>
               <Button onClick={handleAddRule}>
                 <Plus className="mr-2 h-4 w-4" />
@@ -1300,7 +1315,12 @@ export default function RuleEngineSettingsPanel({
               className="rounded-md border"
             >
               {localSettings.rules.map((rule) => (
-                <AccordionItem key={rule.id} value={rule.id} className="px-4">
+                <AccordionItem
+                  key={rule.id}
+                  value={rule.id}
+                  className="px-4"
+                  id={`rule-item-${rule.id}`}
+                >
                   <AccordionTrigger className="hover:no-underline">
                     <div className="space-y-2 text-left">
                       <div className="flex flex-wrap items-center gap-2">
@@ -1311,9 +1331,11 @@ export default function RuleEngineSettingsPanel({
                           {rule.enabled ? 'Enabled' : 'Disabled'}
                         </Badge>
                         <Badge variant="outline">{rule.category || 'No category'}</Badge>
-                        <Badge variant="outline">
-                          {previewData.hitCounts[rule.id] || 0} sample hits
-                        </Badge>
+                        {hasSamplePreview && (
+                          <Badge variant="outline">
+                            {previewData.hitCounts[rule.id] || 0} sample hits
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-slate-500">
                         {(rule.conditions || []).map((condition) => describeCondition(condition)).join(' | ') || 'No conditions yet'}
@@ -1345,11 +1367,35 @@ export default function RuleEngineSettingsPanel({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__empty__">No category yet</SelectItem>
-                            {categoryOptions.map((category) => (
-                              <SelectItem key={`${rule.id}-${category}`} value={category}>
-                                {category}
-                              </SelectItem>
+                            {getRuleCategorySections(rule.transactionType || 'Expense').map((section, index) => (
+                              <React.Fragment key={`${rule.id}-${section.label}`}>
+                                {index > 0 && <SelectSeparator />}
+                                <SelectGroup>
+                                  <SelectLabel>{section.label}</SelectLabel>
+                                  {section.items.map((category) => (
+                                    <SelectItem
+                                      key={`${rule.id}-${section.label}-${category.id}`}
+                                      value={category.name}
+                                    >
+                                      {category.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </React.Fragment>
                             ))}
+                            {rule.category &&
+                              !hasVisibleRuleCategoryOption(
+                                rule.transactionType || 'Expense',
+                                rule.category
+                              ) && (
+                                <>
+                                  <SelectSeparator />
+                                  <SelectGroup>
+                                    <SelectLabel>Current Value</SelectLabel>
+                                    <SelectItem value={rule.category}>{rule.category}</SelectItem>
+                                  </SelectGroup>
+                                </>
+                              )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1530,8 +1576,26 @@ export default function RuleEngineSettingsPanel({
                       ))}
                     </div>
 
-                    <div className="flex justify-end">
-                      <Button variant="ghost" onClick={() => deleteRule(rule.id)}>
+                    <div className="flex justify-end gap-2">
+                      {dirtyPanels.includes('rules') && (
+                        <Button
+                          onClick={() => persistSettings(localSettings, 'Rule changes saved.')}
+                          disabled={!canSaveRuleChanges}
+                          title={
+                            invalidRuleCount > 0
+                              ? 'Complete each rule with a category and filled condition patterns before saving.'
+                              : undefined
+                          }
+                        >
+                          <Save className="mr-2 h-4 w-4" />
+                          {saving ? 'Saving...' : 'Save Rule Changes'}
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        onClick={() => deleteRule(rule.id)}
+                        disabled={saving}
+                      >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Delete Rule
                       </Button>
@@ -1540,6 +1604,7 @@ export default function RuleEngineSettingsPanel({
                 </AccordionItem>
               ))}
             </Accordion>
+
           </AccordionContent>
         </AccordionItem>
       </Accordion>

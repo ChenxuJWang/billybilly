@@ -201,7 +201,7 @@ export function createEmptyCategoryMapping(source = '') {
   };
 }
 
-export function createEmptyRuleDraft(scope = 'all', category = 'Uncategorized') {
+export function createEmptyRuleDraft(scope = 'all', category = '') {
   return {
     id: createId('rule'),
     name: '',
@@ -731,7 +731,7 @@ export function hydrateBillConfig(config) {
 
 export function hydrateRule(rule) {
   return {
-    ...createEmptyRuleDraft(rule?.scope || 'all', rule?.category || 'Uncategorized'),
+    ...createEmptyRuleDraft(rule?.scope || 'all', rule?.category ?? ''),
     ...rule,
     transactionType: rule?.transactionType || 'Expense',
     conditions: (rule?.conditions || []).map((condition) => ({
@@ -876,7 +876,16 @@ function toYaml(value, indent = 0) {
   return `${prefix}${formatYamlScalar(value)}`;
 }
 
-export function serializeRuleEngineSettingsToYaml(settings) {
+export function serializeRuleEngineSettingsToYaml(settings, categories = []) {
+  const exportedCategories = Array.from(
+    new Set(
+      categories
+        .map((category) =>
+          typeof category === 'string' ? category : category?.name
+        )
+        .filter(Boolean)
+    )
+  );
   const payload = {
     app: 'expense-tracker-rule-engine',
     version: 1,
@@ -885,8 +894,7 @@ export function serializeRuleEngineSettingsToYaml(settings) {
     selectedBillConfigId: settings.selectedBillConfigId,
     selectedConfigId: settings.selectedBillConfigId,
     billConfigs: settings.billConfigs,
-    customCategories: settings.customCategories,
-    categories: settings.customCategories,
+    categories: exportedCategories,
     rules: settings.rules,
   };
 
