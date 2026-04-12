@@ -1,5 +1,5 @@
-import { memo, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, Sparkles, XCircle } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, CheckCircle, ChevronLeft, ChevronRight, Sparkles, XCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Button } from '@/components/ui/button.jsx';
@@ -207,6 +207,7 @@ function getTransactionSelectValue(transaction, categories) {
 const TransactionReviewRow = memo(function TransactionReviewRow({
   transaction,
   categories,
+  registerRowElement,
   onCategoryChange,
 }) {
   const [selectedValue, setSelectedValue] = useState(() =>
@@ -221,13 +222,14 @@ const TransactionReviewRow = memo(function TransactionReviewRow({
 
   return (
     <div
+      ref={(node) => registerRowElement(transaction.id, node)}
       className={`flex flex-col items-start justify-between rounded-lg border p-3 shadow-sm md:flex-row md:items-center ${
         ignored
           ? 'border-slate-300 bg-slate-100 text-slate-500'
           : isUncategorizedTransaction(transaction)
             ? 'bg-[#B2DAFF]'
             : ''
-      }`}
+      } transition-shadow duration-150`}
     >
       <div className="mb-2 flex-1 md:mb-0">
         <div className={`text-lg font-medium ${ignored ? 'text-slate-600' : ''}`}>{transaction.description}</div>
@@ -292,6 +294,134 @@ export default function ImportReviewView({
   debugPanelProps,
 }) {
   const hasUncategorizedTransactions = displayedTransactions.some(isUncategorizedTransaction);
+  const ignoredTransactionsCount = displayedTransactions.filter(isIgnoredTransaction).length;
+  const totalTransactionsCount = displayedTransactions.length;
+  const manualReviewCount = displayedTransactions.filter(isUncategorizedTransaction).length;
+  const manualTransactionIds = useMemo(
+    () =>
+      displayedTransactions
+        .filter(isUncategorizedTransaction)
+        .map((transaction) => transaction.id),
+    [displayedTransactions]
+  );
+  const rowRefs = useRef(new Map());
+  const scrollContainerRef = useRef(null);
+  const blinkTimeoutsRef = useRef(new Map());
+  const [activeManualIndex, setActiveManualIndex] = useState(null);
+  const [manualMarkerPositions, setManualMarkerPositions] = useState([]);
+
+  useEffect(() => {
+    if (manualTransactionIds.length === 0) {
+      setActiveManualIndex(null);
+      return;
+    }
+
+    setActiveManualIndex((currentIndex) =>
+      typeof currentIndex === 'number'
+        ? Math.min(currentIndex, manualTransactionIds.length - 1)
+        : currentIndex
+    );
+  }, [manualTransactionIds]);
+
+  useEffect(() => () => {
+    blinkTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    blinkTimeoutsRef.current.clear();
+  }, []);
+
+  const updateManualMarkerPositions = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+
+    if (!scrollContainer || manualTransactionIds.length === 0) {
+      setManualMarkerPositions([]);
+      return;
+    }
+
+    const scrollHeight = scrollContainer.scrollHeight || 1;
+    const nextPositions = manualTransactionIds
+      .map((transactionId, index) => {
+        const rowElement = rowRefs.current.get(transactionId);
+
+        if (!rowElement) {
+          return null;
+        }
+
+        const markerPosition = Math.min(
+          99.5,
+          Math.max(0.5, ((rowElement.offsetTop + rowElement.offsetHeight / 2) / scrollHeight) * 100)
+        );
+
+        return {
+          transactionId,
+          index,
+          top: markerPosition,
+        };
+      })
+      .filter(Boolean);
+
+    setManualMarkerPositions(nextPositions);
+  }, [manualTransactionIds]);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(updateManualMarkerPositions);
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [displayedTransactions, updateManualMarkerPositions]);
+
+  useEffect(() => {
+    window.addEventListener('resize', updateManualMarkerPositions);
+
+    return () => window.removeEventListener('resize', updateManualMarkerPositions);
+  }, [updateManualMarkerPositions]);
+
+  const hasManualTransactions = manualTransactionIds.length > 0;
+
+  const registerRowElement = useCallback((transactionId, node) => {
+    if (node) {
+      rowRefs.current.set(transactionId, node);
+      return;
+    }
+
+    rowRefs.current.delete(transactionId);
+  }, []);
+
+  const blinkManualTransaction = useCallback((transactionId) => {
+    const rowElement = rowRefs.current.get(transactionId);
+
+    if (!rowElement) {
+      return;
+    }
+
+    const existingTimeout = blinkTimeoutsRef.current.get(transactionId);
+    if (existingTimeout) {
+      window.clearTimeout(existingTimeout);
+    }
+
+    rowElement.classList.remove('ring-2', 'ring-sky-300', 'ring-offset-2');
+    void rowElement.offsetWidth;
+    rowElement.classList.add('ring-2', 'ring-sky-300', 'ring-offset-2');
+
+    const timeoutId = window.setTimeout(() => {
+      rowElement.classList.remove('ring-2', 'ring-sky-300', 'ring-offset-2');
+      blinkTimeoutsRef.current.delete(transactionId);
+    }, 500);
+
+    blinkTimeoutsRef.current.set(transactionId, timeoutId);
+  }, []);
+
+  const jumpToManualTransaction = useCallback((nextIndex) => {
+    const nextTransactionId = manualTransactionIds[nextIndex];
+
+    if (!nextTransactionId) {
+      return;
+    }
+
+    setActiveManualIndex(nextIndex);
+    rowRefs.current.get(nextTransactionId)?.scrollIntoView({
+      behavior: 'auto',
+      block: 'center',
+    });
+    blinkManualTransaction(nextTransactionId);
+  }, [blinkManualTransaction, manualTransactionIds]);
 
   return (
     <div className="space-y-4 p-6">
@@ -322,21 +452,112 @@ export default function ImportReviewView({
 
       <Card>
         <CardHeader>
-          <CardTitle>Categorized Transactions</CardTitle>
-          <CardDescription>Review and adjust the suggested categories before import.</CardDescription>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle>Categorized Transactions</CardTitle>
+              <CardDescription>Review and adjust the suggested categories before import.</CardDescription>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[720px]">
+              <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-stone-500">
+                  Transactions
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-stone-900">
+                  {totalTransactionsCount}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+                  Ignored
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-slate-700">
+                  {ignoredTransactionsCount}
+                </p>
+              </div>
+              <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.16em] text-sky-600">
+                      Needs Manual Update
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-sky-700">
+                      {manualReviewCount}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 border-sky-200 bg-white/80 text-sky-700"
+                      disabled={!hasManualTransactions}
+                      onClick={() =>
+                        jumpToManualTransaction(
+                          activeManualIndex === null
+                            ? manualTransactionIds.length - 1
+                            : (activeManualIndex - 1 + manualTransactionIds.length) %
+                              manualTransactionIds.length
+                        )
+                      }
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                      <span className="sr-only">Previous manual update</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 border-sky-200 bg-white/80 text-sky-700"
+                      disabled={!hasManualTransactions}
+                      onClick={() =>
+                        jumpToManualTransaction(
+                          activeManualIndex === null
+                            ? 0
+                            : (activeManualIndex + 1) % manualTransactionIds.length
+                        )
+                      }
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                      <span className="sr-only">Next manual update</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="max-h-[70vh] space-y-4 overflow-y-auto">
-            {displayedTransactions.map((transaction) => {
-              return (
-                <TransactionReviewRow
-                  key={transaction.id}
-                  transaction={transaction}
-                  categories={categories}
-                  onCategoryChange={onCategoryChange}
-                />
-              );
-            })}
+          <div className="relative">
+            <div
+              ref={scrollContainerRef}
+              className="max-h-[70vh] space-y-4 overflow-y-auto pr-5"
+            >
+              {displayedTransactions.map((transaction) => {
+                return (
+                  <TransactionReviewRow
+                    key={transaction.id}
+                    transaction={transaction}
+                    categories={categories}
+                    registerRowElement={registerRowElement}
+                    onCategoryChange={onCategoryChange}
+                  />
+                );
+              })}
+            </div>
+            {manualMarkerPositions.length > 0 && (
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex w-4 justify-center">
+                <div className="relative h-full w-[10px]">
+                  {manualMarkerPositions.map((marker) => (
+                    <button
+                      key={marker.transactionId}
+                      type="button"
+                      className="pointer-events-auto absolute left-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-sky-500 shadow-sm transition-transform hover:scale-110"
+                      style={{ top: `${marker.top}%` }}
+                      onClick={() => jumpToManualTransaction(marker.index)}
+                      title={`Jump to manual update ${marker.index + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -272,7 +272,8 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
       }
 
       console.error('Categorization error:', categorizationError);
-      setDisplayedTransactions(createUnreviewedTransactions(transactions));
+      const fallbackTransactions = createUnreviewedTransactions(transactions);
+      setDisplayedTransactions(fallbackTransactions);
       setReviewingTransactions(true);
       setError(`${engineLabel} failed. Review the imported rows manually before confirming import.`);
     } finally {
