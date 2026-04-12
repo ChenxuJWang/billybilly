@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { Button } from '@/components/ui/button.jsx';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import {
   addDoc,
   collection,
@@ -21,6 +22,7 @@ import { useLedger } from '@/contexts/LedgerContext';
 import TransactionBatchEdit from '@/features/transactions/components/TransactionBatchEdit';
 import TransactionForm from '@/features/transactions/components/TransactionForm';
 import TransactionList from '@/features/transactions/components/TransactionList';
+import DataImport from '@/components/DataImport';
 import {
   createDefaultBatchEditState,
   createDefaultCategories,
@@ -29,9 +31,11 @@ import {
   normalizeTransactionForEdit,
 } from '@/features/transactions/utils/transactionManagement';
 
-export default function TransactionManagement() {
+export default function TransactionManagement({ debugModeEnabled = false, thinkingModeEnabled = false }) {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -47,6 +51,7 @@ export default function TransactionManagement() {
 
   const [formData, setFormData] = useState(createDefaultTransactionForm(currentUser?.uid || ''));
   const [batchEditData, setBatchEditData] = useState(createDefaultBatchEditState());
+  const showImportPage = location.pathname === '/transactions/import';
 
   const resetForm = useCallback(() => {
     setFormData(createDefaultTransactionForm(currentUser?.uid || ''));
@@ -400,15 +405,35 @@ export default function TransactionManagement() {
     return <div className="p-6">Please select a ledger to view transactions.</div>;
   }
 
+  if (showImportPage) {
+    return (
+      <DataImport
+        debugModeEnabled={debugModeEnabled}
+        thinkingModeEnabled={thinkingModeEnabled}
+        onBack={() => navigate('/transactions')}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
         {canEdit() && (
-          <Button onClick={handleOpenAddForm} className="flex items-center space-x-2">
-            <Plus className="h-4 w-4" />
-            <span>Add Transaction</span>
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => navigate('/transactions/import')}
+              className="flex items-center space-x-2"
+            >
+              <Upload className="h-4 w-4" />
+              <span>Import Transactions</span>
+            </Button>
+            <Button onClick={handleOpenAddForm} className="flex items-center space-x-2">
+              <Plus className="h-4 w-4" />
+              <span>Add Single Transaction</span>
+            </Button>
+          </div>
         )}
       </div>
 

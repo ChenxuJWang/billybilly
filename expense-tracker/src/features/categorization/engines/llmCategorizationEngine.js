@@ -1,17 +1,8 @@
 import { callLLMCategorization } from '@/utils/llmCategorization';
-
-function normalizeText(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
-
-function resolveCategory(categories, suggestedCategory) {
-  const normalizedSuggestion = normalizeText(suggestedCategory);
-  return (
-    categories.find((category) => normalizeText(category.name) === normalizedSuggestion) || null
-  );
-}
+import {
+  resolveCategoryForTransaction,
+  resolveDisplayedTransactionType,
+} from '@/features/categorization/utils/categoryResolution';
 
 export async function categorizeTransactionsWithLlm({
   transactions,
@@ -40,18 +31,19 @@ export async function categorizeTransactionsWithLlm({
       (candidate) => Number.parseInt(candidate.id, 10) === transaction.id
     );
     const suggestedCategory = match?.category || 'HTT';
-    const resolvedCategory = resolveCategory(categories, suggestedCategory);
+    const resolvedCategory = resolveCategoryForTransaction(categories, suggestedCategory, transaction);
 
     return {
       ...transaction,
       suggestedCategory,
       categoryId: resolvedCategory?.id || null,
       categoryName: resolvedCategory?.name || suggestedCategory,
+      type: resolveDisplayedTransactionType(transaction, resolvedCategory),
       categorizationProcessing: false,
       matchedRuleId: null,
       matchedRuleName: '',
       ruleSuggestedCategory: '',
-      billCategorySuggestion: '',
+      billCategorySuggestion: transaction.mappedBillCategory || '',
     };
   });
 

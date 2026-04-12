@@ -8,6 +8,7 @@ import { getCategorizationEngineLabel } from '@/features/categorization/constant
 import {
   getCategorizationStatusMessage,
   loadCategorizationSettings,
+  saveCategorizationSettings,
 } from '@/features/categorization/settings';
 import {
   CATEGORIZATION_EMPTY_MESSAGE,
@@ -21,10 +22,16 @@ import { useTransactionSuggestionScroll } from '@/features/import/hooks/useTrans
 import { importTransactionsToLedger } from '@/features/import/utils/importTransactions';
 import { parseImportedFile } from '@/features/import/utils/parseImportedTransactions';
 import {
+  IGNORE_CATEGORY_VALUE,
   applySuggestedCategoryUpdates,
   createPendingDisplayedTransactions,
   updateReviewedCategory,
 } from '@/features/import/utils/reviewTransactions';
+import {
+  buildCreateRuleSuggestion,
+  buildUpdateRulePatch,
+} from '@/features/import/utils/ruleSuggestions';
+import { IGNORE_CATEGORY_NAME } from '@/features/categorization/ruleEngine';
 
 function createUnreviewedTransactions(transactions) {
   return transactions.map((transaction) => ({
@@ -34,12 +41,12 @@ function createUnreviewedTransactions(transactions) {
     matchedRuleId: null,
     matchedRuleName: '',
     matchedRuleDetails: [],
-    billCategorySuggestion: '',
+    billCategorySuggestion: transaction.mappedBillCategory || '',
     ruleSuggestedCategory: '',
   }));
 }
 
-export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
+export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBack }) {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
 
@@ -58,7 +65,6 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [ruleEngineSettings, setRuleEngineSettings] = useState(null);
 
-  const [parsedTransactions, setParsedTransactions] = useState([]);
   const [displayedTransactions, setDisplayedTransactions] = useState([]);
   const [reviewingTransactions, setReviewingTransactions] = useState(false);
   const [categorizationProcessing, setCategorizationProcessing] = useState(false);
@@ -68,6 +74,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   const [streamingFinishReason, setStreamingFinishReason] = useState('');
   const [categorizationUsage, setCategorizationUsage] = useState(null);
   const [debugInfo, setDebugInfo] = useState(null);
+  const [ruleSuggestionPrompt, setRuleSuggestionPrompt] = useState(null);
 
   const abortControllerRef = useRef(null);
   const { getTransactionRef } = useTransactionSuggestionScroll(
@@ -77,6 +84,30 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
 
   const categorizationEngine = getCategorizationEngine(categorizationEngineId);
   const engineLabel = getCategorizationEngineLabel(categorizationEngineId);
+
+  function resetImportState({ keepSuccessMessage = false } = {}) {
+    setSelectedBillConfigId(
+      ruleEngineSettings?.selectedBillConfigId ||
+        ruleEngineSettings?.billConfigs?.[0]?.id ||
+        ''
+    );
+    setFile(null);
+    setImporting(false);
+    setImportProgress(0);
+    setImportResults(null);
+    setError('');
+    setSuccess((previous) => (keepSuccessMessage ? previous : ''));
+    setDisplayedTransactions([]);
+    setReviewingTransactions(false);
+    setCategorizationProcessing(false);
+    setProcessingTitle('Categorizing imported transactions...');
+    setStreamingContent('');
+    setStreamingReasoningContent('');
+    setStreamingFinishReason('');
+    setCategorizationUsage(null);
+    setDebugInfo(null);
+    setRuleSuggestionPrompt(null);
+  }
 
   useEffect(() => {
     async function fetchCategories() {
@@ -138,6 +169,22 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
 
     return () => clearTimeout(timer);
   }, [success, error]);
+
+  useEffect(() => () => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!ruleSuggestionPrompt) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setRuleSuggestionPrompt(null);
+    }, 7000);
+
+    return () => clearTimeout(timer);
+  }, [ruleSuggestionPrompt]);
 
   const debugPanelProps = {
     streamingContent,
@@ -245,8 +292,6 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
         throw new Error('No valid transactions were found in the uploaded file.');
       }
 
-      setParsedTransactions(nextParsedTransactions);
-
       if (categorizationEnabled) {
         setDisplayedTransactions(createPendingDisplayedTransactions(nextParsedTransactions));
         setCategorizationProcessing(true);
@@ -272,21 +317,6 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
       setCategorizationProcessing(false);
       event.target.value = '';
     }
-  }
-
-  async function handleRetryCategorization() {
-    if (parsedTransactions.length === 0) {
-      return;
-    }
-
-    setReviewingTransactions(false);
-    setImporting(true);
-    setCategorizationProcessing(true);
-    setError('');
-    setSuccess('');
-    setDisplayedTransactions(createPendingDisplayedTransactions(parsedTransactions));
-    abortControllerRef.current = new AbortController();
-    await runCategorization(parsedTransactions);
   }
 
   function handleCancelCategorization() {
@@ -323,27 +353,130 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   function handleCancelReview() {
     setReviewingTransactions(false);
     setDisplayedTransactions([]);
-    setParsedTransactions([]);
     setFile(null);
     setError('');
     setSuccess('Import cancelled.');
+    setRuleSuggestionPrompt(null);
   }
 
   function handleImportMore() {
     setImportResults(null);
     setFile(null);
-    setParsedTransactions([]);
     setDisplayedTransactions([]);
     setImportProgress(0);
     setError('');
     setSuccess('');
+    setRuleSuggestionPrompt(null);
   }
 
   function handleCategoryChange(transactionId, nextCategoryId) {
+    const currentTransaction = displayedTransactions.find((transaction) => transaction.id === transactionId);
+    const matchedCategory =
+      nextCategoryId === IGNORE_CATEGORY_VALUE
+        ? { id: IGNORE_CATEGORY_VALUE, name: IGNORE_CATEGORY_NAME }
+        : categories.find((category) => category.id === nextCategoryId);
+
     setDisplayedTransactions((previousTransactions) =>
       updateReviewedCategory(previousTransactions, transactionId, nextCategoryId, categories)
     );
+
+    if (!currentTransaction || nextCategoryId === 'uncategorized' || !matchedCategory) {
+      setRuleSuggestionPrompt(null);
+      return;
+    }
+
+    if (currentTransaction.matchedRuleId && currentTransaction.categoryId !== nextCategoryId) {
+      setRuleSuggestionPrompt({
+        mode: 'update',
+        transactionId,
+        ruleId: currentTransaction.matchedRuleId,
+        ruleName: currentTransaction.matchedRuleName,
+        categoryId: matchedCategory.id,
+        categoryName: matchedCategory.name,
+      });
+      return;
+    }
+
+    if (!currentTransaction.categoryId || currentTransaction.categoryName === 'HTT') {
+      setRuleSuggestionPrompt({
+        mode: 'create',
+        transactionId,
+        categoryId: matchedCategory.id,
+        categoryName: matchedCategory.name,
+        billTypeName: currentTransaction.billTypeName,
+      });
+      return;
+    }
+
+    setRuleSuggestionPrompt(null);
   }
+
+  function handleExitImport() {
+    abortControllerRef.current?.abort();
+    resetImportState();
+    onBack?.();
+  }
+
+  async function handleApplyRuleSuggestion() {
+    if (!currentUser || !ruleSuggestionPrompt) {
+      return;
+    }
+
+    const transaction = displayedTransactions.find(
+      (candidate) => candidate.id === ruleSuggestionPrompt.transactionId
+    );
+    const category =
+      ruleSuggestionPrompt.categoryId === IGNORE_CATEGORY_VALUE
+        ? { id: IGNORE_CATEGORY_VALUE, name: IGNORE_CATEGORY_NAME }
+        : categories.find((candidate) => candidate.id === ruleSuggestionPrompt.categoryId);
+
+    if (!transaction || !category || !ruleEngineSettings) {
+      setRuleSuggestionPrompt(null);
+      return;
+    }
+
+    try {
+      let nextRuleEngineSettings = ruleEngineSettings;
+
+      if (ruleSuggestionPrompt.mode === 'create') {
+        const nextRule = buildCreateRuleSuggestion({
+          transaction,
+          category,
+          existingRules: ruleEngineSettings.rules,
+        });
+
+        nextRuleEngineSettings = {
+          ...ruleEngineSettings,
+          rules: [...ruleEngineSettings.rules, nextRule],
+        };
+        setSuccess(`Saved new rule "${nextRule.name}".`);
+      } else {
+        nextRuleEngineSettings = {
+          ...ruleEngineSettings,
+          rules: ruleEngineSettings.rules.map((rule) =>
+            rule.id === ruleSuggestionPrompt.ruleId
+              ? {
+                  ...rule,
+                  ...buildUpdateRulePatch({ category }),
+                }
+              : rule
+          ),
+        };
+        setSuccess(`Updated rule "${ruleSuggestionPrompt.ruleName}".`);
+      }
+
+      await saveCategorizationSettings(currentUser, {
+        ruleEngineSettings: nextRuleEngineSettings,
+      });
+      setRuleEngineSettings(nextRuleEngineSettings);
+      setRuleSuggestionPrompt(null);
+    } catch (saveError) {
+      console.error('Failed to save import rule suggestion:', saveError);
+      setError(saveError.message || 'Failed to save the rule suggestion.');
+    }
+  }
+
+  const canExitImport = !importing || categorizationProcessing || reviewingTransactions || importResults;
 
   if (!currentLedger) {
     return (
@@ -365,6 +498,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
           CATEGORIZATION_EMPTY_MESSAGE[categorizationEngineId] || 'Processing...'
         }
         onCancel={handleCancelCategorization}
+        onBack={canExitImport ? handleExitImport : undefined}
         showDebug={debugModeEnabled && categorizationEngine.supportsStreaming}
         debugPanelProps={debugPanelProps}
       />
@@ -378,10 +512,11 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
         categories={categories}
         error={error}
         onCancel={handleCancelReview}
-        onRetry={handleRetryCategorization}
         onConfirm={handleConfirmImport}
         onCategoryChange={handleCategoryChange}
-        retryLabel={categorizationEngineId === 'rules' ? 'Rerun Rules' : 'Retry LLM'}
+        ruleSuggestionPrompt={ruleSuggestionPrompt}
+        onDismissRuleSuggestion={() => setRuleSuggestionPrompt(null)}
+        onApplyRuleSuggestion={handleApplyRuleSuggestion}
         showDebug={debugModeEnabled && categorizationEngine.supportsStreaming}
         debugPanelProps={debugPanelProps}
       />
@@ -389,7 +524,13 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
   }
 
   if (importResults) {
-    return <ImportResultsView importResults={importResults} onImportMore={handleImportMore} />;
+    return (
+      <ImportResultsView
+        importResults={importResults}
+        onImportMore={handleImportMore}
+        onBack={handleExitImport}
+      />
+    );
   }
 
   return (
@@ -398,6 +539,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled }) {
       onFileUpload={handleFileUpload}
       error={error}
       success={success}
+      onBack={onBack}
       billConfigs={ruleEngineSettings?.billConfigs || []}
       selectedBillConfigId={selectedBillConfigId}
       setSelectedBillConfigId={setSelectedBillConfigId}

@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select.jsx';
 import {
+  ArrowLeft,
   AlertCircle,
   CheckCircle,
   Upload,
@@ -22,6 +23,7 @@ export default function ImportSetupView({
   onFileUpload,
   error,
   success,
+  onBack,
   billConfigs,
   selectedBillConfigId,
   setSelectedBillConfigId,
@@ -30,8 +32,16 @@ export default function ImportSetupView({
   categorizationStatusMessage,
 }) {
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-3xl font-bold text-gray-900">Import Transactions</h1>
+    <div className="space-y-6 p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-3xl font-bold text-gray-900">Import Transactions</h1>
+        {onBack && (
+          <Button variant="outline" onClick={onBack} className="flex items-center space-x-2">
+            <ArrowLeft className="h-4 w-4" />
+            <span>Back to Transactions</span>
+          </Button>
+        )}
+      </div>
 
       {error && (
         <Alert variant="destructive">

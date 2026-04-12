@@ -1,3 +1,11 @@
+import {
+  resolveCategoryForTransaction,
+  resolveDisplayedTransactionType,
+} from '@/features/categorization/utils/categoryResolution';
+import { IGNORE_CATEGORY_NAME } from '@/features/categorization/ruleEngine';
+
+export const IGNORE_CATEGORY_VALUE = '__ignore__';
+
 function normalizeText(value) {
   return String(value || '')
     .trim()
@@ -19,7 +27,7 @@ export function createPendingDisplayedTransactions(transactions) {
     matchedRuleId: null,
     matchedRuleName: '',
     matchedRuleDetails: [],
-    billCategorySuggestion: '',
+    billCategorySuggestion: transaction.mappedBillCategory || '',
     ruleSuggestedCategory: '',
   }));
 }
@@ -35,13 +43,14 @@ export function applySuggestedCategoryUpdates(transactions, suggestions, categor
     }
 
     const suggestedCategory = suggestion.category || suggestion.suggestedCategory || 'HTT';
-    const resolvedCategory = resolveCategoryByName(categories, suggestedCategory);
+    const resolvedCategory = resolveCategoryForTransaction(categories, suggestedCategory, transaction);
 
     return {
       ...transaction,
       suggestedCategory,
       categoryId: resolvedCategory?.id || null,
       categoryName: resolvedCategory?.name || suggestedCategory,
+      type: resolveDisplayedTransactionType(transaction, resolvedCategory),
       categorizationProcessing: false,
     };
   });
@@ -53,11 +62,20 @@ export function updateReviewedCategory(transactions, transactionId, nextCategory
       return transaction;
     }
 
+    if (nextCategoryId === IGNORE_CATEGORY_VALUE) {
+      return {
+        ...transaction,
+        categoryId: null,
+        categoryName: IGNORE_CATEGORY_NAME,
+      };
+    }
+
     if (nextCategoryId === 'uncategorized') {
       return {
         ...transaction,
         categoryId: null,
         categoryName: 'HTT',
+        type: resolveDisplayedTransactionType(transaction, null),
       };
     }
 
@@ -66,10 +84,15 @@ export function updateReviewedCategory(transactions, transactionId, nextCategory
       ...transaction,
       categoryId: matchedCategory?.id || null,
       categoryName: matchedCategory?.name || 'HTT',
+      type: resolveDisplayedTransactionType(transaction, matchedCategory),
     };
   });
 }
 
 export function isUncategorizedTransaction(transaction) {
-  return !transaction.categoryId || transaction.categoryName === 'HTT';
+  return (!transaction.categoryId && transaction.categoryName !== IGNORE_CATEGORY_NAME) || transaction.categoryName === 'HTT';
+}
+
+export function isIgnoredTransaction(transaction) {
+  return transaction.categoryName === IGNORE_CATEGORY_NAME;
 }

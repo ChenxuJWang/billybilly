@@ -12,7 +12,6 @@ import {
   Plus,
   Shield,
   Tag,
-  Upload,
   User,
   Users,
   Wallet,
@@ -91,23 +90,26 @@ const LEDGER_ITEMS = [
   { to: '/budgets', label: 'Budgets', icon: PieChart },
   { to: '/categories', label: 'Categories', icon: Tag },
   { to: '/splits', label: 'Splits', icon: Users },
-  { to: '/import', label: 'Import', icon: Upload },
   { to: '/admin', label: 'Admin', icon: Shield },
 ];
 
 const USER_SETTINGS_ITEM = { to: '/settings', label: 'Your Settings', icon: User };
 
 function isActivePath(pathname, target) {
-  return pathname === target;
+  if (target === '/') {
+    return pathname === target;
+  }
+
+  return pathname === target || pathname.startsWith(`${target}/`);
 }
 
 function isLedgerPath(pathname) {
-  return LEDGER_ITEMS.some((item) => item.to === pathname);
+  return LEDGER_ITEMS.some((item) => isActivePath(pathname, item.to));
 }
 
 function getPageLabel(pathname) {
   const match = [...GLOBAL_ITEMS, ...LEDGER_ITEMS, USER_SETTINGS_ITEM].find(
-    (item) => item.to === pathname
+    (item) => isActivePath(pathname, item.to)
   );
 
   return match?.label || 'Workspace';

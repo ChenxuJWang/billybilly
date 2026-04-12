@@ -1,5 +1,6 @@
 import { collection, doc, getDocs, query, Timestamp, writeBatch } from 'firebase/firestore';
 import { db } from '@/firebase';
+import { IGNORE_CATEGORY_NAME } from '@/features/categorization/ruleEngine';
 
 function getDuplicateKey(transaction) {
   return `${transaction.date.toISOString()}-${transaction.amount}-${transaction.description}`;
@@ -36,6 +37,7 @@ export async function importTransactionsToLedger({
   const pendingBatches = [];
   let imported = 0;
   let skipped = 0;
+  let ignored = 0;
 
   for (let index = 0; index < transactions.length; index += batchSize) {
     const batch = writeBatch(db);
@@ -44,6 +46,11 @@ export async function importTransactionsToLedger({
     let chunkSkipped = 0;
 
     for (const transaction of chunk) {
+      if (transaction.categoryName === IGNORE_CATEGORY_NAME) {
+        ignored += 1;
+        continue;
+      }
+
       const duplicateKey = getDuplicateKey(transaction);
       if (existingTransactions.has(duplicateKey)) {
         chunkSkipped += 1;
@@ -93,5 +100,5 @@ export async function importTransactionsToLedger({
     }
   }
 
-  return { imported, skipped };
+  return { imported, skipped, ignored };
 }

@@ -1,4 +1,10 @@
+import {
+  resolveCategoryForTransaction,
+  resolveDisplayedTransactionType,
+} from '@/features/categorization/utils/categoryResolution';
+
 const createId = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+export const IGNORE_CATEGORY_NAME = 'IGNORE';
 
 export const INTERNAL_TRANSACTION_TYPES = ['Income', 'Expense', 'Neutral'];
 
@@ -285,13 +291,6 @@ function parseDateValue(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function resolveCategory(categories, suggestedCategory) {
-  const normalizedSuggestion = normalizeText(suggestedCategory);
-  return (
-    categories.find((category) => normalizeText(category.name) === normalizedSuggestion) || null
-  );
-}
-
 function findBestCategoryName(categories, sourceCategory) {
   const normalizedSource = normalizeText(sourceCategory);
   if (!normalizedSource) {
@@ -317,12 +316,16 @@ function findBestCategoryName(categories, sourceCategory) {
 }
 
 export function getRuleEngineCategoryOptions(categories = [], customCategories = []) {
-  return Array.from(
+  const options = Array.from(
     new Set([
       ...categories.map((category) => category.name).filter(Boolean),
       ...customCategories.map((category) => String(category || '').trim()).filter(Boolean),
     ])
   ).sort((left, right) => left.localeCompare(right));
+
+  return options.includes(IGNORE_CATEGORY_NAME)
+    ? options
+    : [...options, IGNORE_CATEGORY_NAME];
 }
 
 export function mapBillCategory(rawCategory, categoryMappings = [], categories = []) {
@@ -574,14 +577,21 @@ export function parseBillText(text, config, categories = []) {
       config?.categoryMappings,
       categories
     );
-    const resolvedCategory = resolveCategory(categories, mappedBillCategory);
     const internalTransactionType = mapTransactionType(
       rawTransactionType,
       config?.transactionTypeMappings
     );
+    const resolvedCategory = resolveCategoryForTransaction(
+      categories,
+      mappedBillCategory,
+      { internalTransactionType }
+    );
     const source = getCellValue(row, fieldIndexes.source);
     const transactionStatus = getCellValue(row, fieldIndexes.transactionStatus);
-    const type = internalTransactionType === 'Income' ? 'income' : 'expense';
+    const type = resolveDisplayedTransactionType(
+      { internalTransactionType },
+      resolvedCategory
+    );
 
     transactions.push({
       id: lineIndex - headerIndex,
@@ -663,13 +673,18 @@ export function applyRulesToTransactions(transactions, rules, categories = []) {
     const billCategorySuggestion = transaction.mappedBillCategory || '';
     const ruleSuggestedCategory = matchedRule?.category || '';
     const suggestedCategory = ruleSuggestedCategory || billCategorySuggestion || 'HTT';
-    const resolvedCategory = resolveCategory(categories, suggestedCategory);
+    const resolvedCategory = resolveCategoryForTransaction(
+      categories,
+      suggestedCategory,
+      transaction
+    );
 
     return {
       ...transaction,
       suggestedCategory,
       categoryId: resolvedCategory?.id || transaction.categoryId || null,
       categoryName: resolvedCategory?.name || suggestedCategory,
+      type: resolveDisplayedTransactionType(transaction, resolvedCategory),
       categorizationProcessing: false,
       matchedRuleId: matchedRule?.id || null,
       matchedRuleName: matchedRule?.name || '',

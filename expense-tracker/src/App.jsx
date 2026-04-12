@@ -15,7 +15,6 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const TransactionManagement = lazy(() => import('./components/TransactionManagement'));
 const BudgetManagement = lazy(() => import('./components/BudgetManagement'));
 const CategoryManagement = lazy(() => import('./components/CategoryManagement'));
-const DataImport = lazy(() => import('./components/DataImport'));
 
 function RouteFallback() {
   return (
@@ -49,12 +48,6 @@ function ExpenseSplits() {
   );
 }
 
-function Import({ debugModeEnabled, thinkingModeEnabled }) {
-  return withSuspense(
-    <DataImport debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />
-  );
-}
-
 function AuthRoutes() {
   const { currentUser } = useAuth();
 
@@ -84,14 +77,28 @@ function AppRoutes() {
         <Route path="/signup" element={<Navigate to="/" replace />} />
         <Route path="/" element={<GlobalDashboard />} />
         <Route path="/overview" element={withSuspense(<Dashboard />)} />
-        <Route path="/transactions" element={withSuspense(<TransactionManagement />)} />
+        <Route
+          path="/transactions"
+          element={withSuspense(
+            <TransactionManagement
+              debugModeEnabled={debugModeEnabled}
+              thinkingModeEnabled={thinkingModeEnabled}
+            />
+          )}
+        />
+        <Route
+          path="/transactions/import"
+          element={withSuspense(
+            <TransactionManagement
+              debugModeEnabled={debugModeEnabled}
+              thinkingModeEnabled={thinkingModeEnabled}
+            />
+          )}
+        />
         <Route path="/budgets" element={withSuspense(<BudgetManagement />)} />
         <Route path="/categories" element={withSuspense(<CategoryManagement />)} />
         <Route path="/splits" element={<ExpenseSplits />} />
-        <Route
-          path="/import"
-          element={<Import debugModeEnabled={debugModeEnabled} thinkingModeEnabled={thinkingModeEnabled} />}
-        />
+        <Route path="/import" element={<Navigate to="/transactions/import" replace />} />
         <Route path="/admin" element={<LedgerAdmin />} />
         <Route
           path="/settings"

@@ -1,4 +1,4 @@
-import { AlertCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
@@ -13,19 +13,28 @@ export default function ImportProgressView({
   isCategorizing,
   processingPlaceholder,
   onCancel,
+  onBack,
   showDebug,
   debugPanelProps,
 }) {
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold text-gray-900">{title}</h1>
-        {isCategorizing && (
-          <Button variant="outline" onClick={onCancel} className="flex items-center space-x-2">
-            <XCircle className="h-4 w-4" />
-            <span>Cancel</span>
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {onBack && (
+            <Button variant="outline" onClick={onBack} className="flex items-center space-x-2">
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Transactions</span>
+            </Button>
+          )}
+          {isCategorizing && (
+            <Button variant="outline" onClick={onCancel} className="flex items-center space-x-2">
+              <XCircle className="h-4 w-4" />
+              <span>Cancel</span>
+            </Button>
+          )}
+        </div>
       </div>
 
       {displayedTransactions.length > 0 && (
