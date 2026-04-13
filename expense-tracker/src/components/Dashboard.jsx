@@ -444,10 +444,10 @@ export default function Dashboard() {
             </div>
             <div className="h-10 w-40 rounded bg-slate-200" />
           </div>
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_minmax(280px,0.85fr)]">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)] 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_minmax(280px,0.85fr)]">
             <div className="h-80 rounded-2xl bg-slate-200" />
             <div className="h-80 rounded-2xl bg-slate-200" />
-            <div className="h-80 rounded-2xl bg-slate-200" />
+            <div className="h-80 rounded-2xl bg-slate-200 xl:col-span-2 2xl:col-span-1" />
           </div>
           <div className="h-96 rounded-2xl bg-slate-200" />
         </div>
@@ -493,7 +493,7 @@ export default function Dashboard() {
         </Alert>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_minmax(280px,0.85fr)]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)] 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_minmax(280px,0.85fr)]">
         <Card className="border-slate-200">
           <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
@@ -560,16 +560,16 @@ export default function Dashboard() {
 
         <Card className="border-slate-200">
           <CardHeader className="gap-4">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="space-y-1">
-                <CardTitle>Breakdown</CardTitle>
-                <CardDescription>
-                  Switch between category mix and member contribution without leaving the overview.
-                </CardDescription>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1">
+              <CardTitle>Breakdown</CardTitle>
+              <CardDescription>
+                Switch between category mix and member contribution without leaving the overview.
+              </CardDescription>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap 2xl:justify-end">
+              <div className="min-w-0 flex-1 sm:min-w-[12rem] 2xl:max-w-[13rem] 2xl:flex-none">
                 <Select value={breakdownMode} onValueChange={setBreakdownMode}>
-                  <SelectTrigger className="w-full sm:w-[165px]">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -577,8 +577,10 @@ export default function Dashboard() {
                     <SelectItem value="contribution">By Contribution</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="min-w-0 flex-1 sm:min-w-[11rem] 2xl:max-w-[12rem] 2xl:flex-none">
                 <Select value={breakdownPeriod} onValueChange={setBreakdownPeriod}>
-                  <SelectTrigger className="w-full sm:w-[160px]">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -597,7 +599,7 @@ export default function Dashboard() {
                   description="Once this ledger has categorized activity, the chart will show where money is moving."
                 />
               ) : (
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:items-center">
+                <div className="grid gap-6 2xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1fr)] 2xl:items-center">
                   <div className="mx-auto flex w-full max-w-[280px] justify-center">
                     <PieChart width={pieChartWidth} height={pieChartHeight}>
                       <Tooltip
@@ -747,7 +749,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200">
+        <Card className="border-slate-200 xl:col-span-2 2xl:col-span-1">
           <CardHeader className="space-y-1">
             <div className="flex items-center gap-2">
               <PiggyBank className="h-4 w-4 text-slate-500" />
