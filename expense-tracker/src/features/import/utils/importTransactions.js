@@ -70,6 +70,7 @@ export async function importTransactionsToLedger({
         includeInBudget: true,
         platform: transaction.platform,
         originalData: transaction.originalData || {},
+        pinned: false,
         createdAt: Timestamp.now(),
         createdBy: currentUser.uid,
         paidBy: currentUser.uid,

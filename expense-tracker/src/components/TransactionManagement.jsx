@@ -289,6 +289,7 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
         ...formData,
         amount: Number.parseFloat(formData.amount),
         date: Timestamp.fromDate(new Date(formData.date)),
+        pinned: editingTransaction?.pinned || false,
         createdAt: Timestamp.now(),
         userId: currentUser.uid,
         paidBy: formData.paidBy,
@@ -421,6 +422,23 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
     resetForm();
   };
 
+  const handleTogglePin = async (transaction) => {
+    if (!canEdit()) {
+      setError('You do not have permission to pin transactions');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'ledgers', currentLedger.id, 'transactions', transaction.id), {
+        pinned: !transaction.pinned,
+      });
+      setSuccess(transaction.pinned ? 'Transaction unpinned' : 'Transaction pinned');
+    } catch (pinError) {
+      console.error('Error toggling pin on transaction:', pinError);
+      setError('Failed to update pinned transaction');
+    }
+  };
+
   const toggleTransactionSelection = (transactionId) => {
     setSelectedTransactions((previous) =>
       previous.includes(transactionId)
@@ -529,6 +547,7 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
         onSelectAll={selectAllTransactions}
         onShowBatchEdit={() => setShowBatchEdit(true)}
         onBatchDelete={handleBatchDelete}
+        onTogglePin={handleTogglePin}
         onEdit={handleEdit}
         onDelete={handleDelete}
       />

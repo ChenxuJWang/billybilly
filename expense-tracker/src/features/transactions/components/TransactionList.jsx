@@ -2,10 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Checkbox } from '@/components/ui/checkbox.jsx';
-import { ChevronLeft, ChevronRight, Edit, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Pin, Trash2 } from 'lucide-react';
 import { ProfileImageWithName } from '@/components/ProfileImage';
 import { formatCurrencyWithSign } from '@/utils/currency';
-import { ensureArray, groupTransactionsByMonth } from '@/features/transactions/utils/transactionManagement';
+import {
+  ensureArray,
+  groupTransactionsByMonth,
+  normalizeTransactionDate,
+} from '@/features/transactions/utils/transactionManagement';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -176,10 +180,26 @@ export default function TransactionList({
   onSelectAll,
   onShowBatchEdit,
   onBatchDelete,
+  onTogglePin,
   onEdit,
   onDelete,
 }) {
-  const groupedTransactions = groupTransactionsByMonth(transactions);
+  const pinnedTransactions = useMemo(
+    () =>
+      [...transactions]
+        .filter((transaction) => transaction.pinned)
+        .sort(
+          (left, right) =>
+            (normalizeTransactionDate(right.date)?.getTime() || 0) -
+            (normalizeTransactionDate(left.date)?.getTime() || 0)
+        ),
+    [transactions]
+  );
+  const unpinnedTransactions = useMemo(
+    () => transactions.filter((transaction) => !transaction.pinned),
+    [transactions]
+  );
+  const groupedTransactions = groupTransactionsByMonth(unpinnedTransactions);
   const monthSectionRefs = useRef(new Map());
 
   function registerMonthSection(monthKey, node) {
@@ -196,6 +216,90 @@ export default function TransactionList({
       behavior: 'smooth',
       block: 'start',
     });
+  }
+
+  function renderTransactionRow(transaction) {
+    const category = categories.find((item) => item.id === transaction.categoryId);
+    const payer = members.find((member) => member.uid === transaction.paidBy);
+    const splitMembers = members.filter((member) =>
+      ensureArray(transaction.splitWith).includes(member.uid)
+    );
+
+    return (
+      <div
+        key={transaction.id}
+        className="group flex items-center justify-between rounded-md border p-4 shadow-sm"
+      >
+        <div className="flex flex-1 items-center space-x-3">
+          <Checkbox
+            checked={selectedTransactions.includes(transaction.id)}
+            onCheckedChange={() => onToggleSelection(transaction.id)}
+          />
+          <div className="flex-1">
+            <div className="flex items-start justify-between">
+              <div>
+                <p
+                  className={`font-semibold ${
+                    transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {transaction.description}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {category?.name} | {new Date(transaction.date).toLocaleDateString()}
+                </p>
+                {transaction.type === 'expense' && transaction.splitType !== 'none' && (
+                  <p className="text-sm text-gray-500">
+                    Paid by: <ProfileImageWithName user={payer} />
+                    {splitMembers.length > 0 && (
+                      <span>
+                        , Split with:{' '}
+                        {splitMembers.map((member) => member.displayName || member.email).join(', ')}
+                      </span>
+                    )}
+                  </p>
+                )}
+                {transaction.type === 'income' && (
+                  <p className="text-sm text-gray-500">
+                    Paid to: <ProfileImageWithName user={payer} />
+                  </p>
+                )}
+              </div>
+              <div className="text-right">
+                <p
+                  className={`text-lg font-semibold ${
+                    transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {formatCurrencyWithSign(
+                    transaction.amount,
+                    currentLedger?.currency,
+                    transaction.type === 'income'
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="ml-4 flex space-x-2">
+          <Button
+            variant={transaction.pinned ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => onTogglePin(transaction)}
+            className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          >
+            <Pin className="h-4 w-4" />
+            <span className="sr-only">{transaction.pinned ? 'Unpin transaction' : 'Pin transaction'}</span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => onEdit(transaction)}>
+            <Edit className="h-4 w-4" />
+          </Button>
+          <Button variant="destructive" size="sm" onClick={() => onDelete(transaction.id)}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -231,6 +335,22 @@ export default function TransactionList({
             <p>No transactions found. Add one above!</p>
           ) : (
             <div className="space-y-4">
+              {pinnedTransactions.length > 0 && (
+                <div>
+                  <div className="my-6 flex items-center">
+                    <div className="flex-grow border-t border-gray-300" />
+                    <div className="mx-4 rounded-full bg-amber-100 px-3 py-1 text-sm font-medium text-amber-700">
+                      Pinned Transactions
+                    </div>
+                    <div className="flex-grow border-t border-gray-300" />
+                  </div>
+
+                  <div className="space-y-3">
+                    {pinnedTransactions.map((transaction) => renderTransactionRow(transaction))}
+                  </div>
+                </div>
+              )}
+
               {groupedTransactions.map((group) => (
                 <div key={group.key} ref={(node) => registerMonthSection(group.key, node)}>
                   <div className="my-6 flex items-center">
@@ -244,80 +364,7 @@ export default function TransactionList({
                   </div>
 
                   <div className="space-y-3">
-                    {group.transactions.map((transaction) => {
-                      const category = categories.find((item) => item.id === transaction.categoryId);
-                      const payer = members.find((member) => member.uid === transaction.paidBy);
-                      const splitMembers = members.filter((member) =>
-                        ensureArray(transaction.splitWith).includes(member.uid)
-                      );
-
-                      return (
-                        <div
-                          key={transaction.id}
-                          className="flex items-center justify-between rounded-md border p-4 shadow-sm"
-                        >
-                          <div className="flex flex-1 items-center space-x-3">
-                            <Checkbox
-                              checked={selectedTransactions.includes(transaction.id)}
-                              onCheckedChange={() => onToggleSelection(transaction.id)}
-                            />
-                            <div className="flex-1">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <p
-                                    className={`font-semibold ${
-                                      transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
-                                    }`}
-                                  >
-                                    {transaction.description}
-                                  </p>
-                                  <p className="text-sm text-gray-500">
-                                    {category?.name} | {new Date(transaction.date).toLocaleDateString()}
-                                  </p>
-                                  {transaction.type === 'expense' && transaction.splitType !== 'none' && (
-                                    <p className="text-sm text-gray-500">
-                                      Paid by: <ProfileImageWithName user={payer} />
-                                      {splitMembers.length > 0 && (
-                                        <span>
-                                          , Split with:{' '}
-                                          {splitMembers.map((member) => member.displayName || member.email).join(', ')}
-                                        </span>
-                                      )}
-                                    </p>
-                                  )}
-                                  {transaction.type === 'income' && (
-                                    <p className="text-sm text-gray-500">
-                                      Paid to: <ProfileImageWithName user={payer} />
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="text-right">
-                                  <p
-                                    className={`text-lg font-semibold ${
-                                      transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
-                                    }`}
-                                  >
-                                    {formatCurrencyWithSign(
-                                      transaction.amount,
-                                      currentLedger?.currency,
-                                      transaction.type === 'income'
-                                    )}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="ml-4 flex space-x-2">
-                            <Button variant="outline" size="sm" onClick={() => onEdit(transaction)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="destructive" size="sm" onClick={() => onDelete(transaction.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {group.transactions.map((transaction) => renderTransactionRow(transaction))}
                   </div>
                 </div>
               ))}
