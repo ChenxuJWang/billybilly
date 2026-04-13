@@ -96,7 +96,10 @@ function clampProgress(value) {
 
 function buildCategoryBreakdown(transactions, categories) {
   const categoriesById = new Map(categories.map((category) => [category.id, category]));
-  const totals = new Map();
+  const totalsByType = {
+    income: new Map(),
+    expense: new Map(),
+  };
 
   transactions.forEach((transaction) => {
     const amount = Math.abs(Number(transaction.amount) || 0);
@@ -106,47 +109,38 @@ function buildCategoryBreakdown(transactions, categories) {
     }
 
     const category = categoriesById.get(transaction.categoryId);
-    const key = category?.id || `${transaction.type}-uncategorized`;
-    const existingEntry = totals.get(key);
+    const type = category?.type === 'income' || category?.type === 'expense'
+      ? category.type
+      : transaction.type || 'expense';
+    const key = category?.id || `${type}-uncategorized`;
+    const existingEntry = totalsByType[type].get(key);
 
     if (existingEntry) {
       existingEntry.value += amount;
       return;
     }
 
-    totals.set(key, {
+    totalsByType[type].set(key, {
       key,
       name: category?.name || 'Uncategorized',
-      type: category?.type || transaction.type || 'expense',
+      type,
       value: amount,
     });
   });
 
-  const sortedEntries = Array.from(totals.values()).sort((left, right) => right.value - left.value);
-
-  if (sortedEntries.length <= 5) {
-    return sortedEntries.map((entry, index) => ({
-      ...entry,
-      color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-    }));
+  function decorateEntries(entries, colorOffset = 0) {
+    return entries
+      .sort((left, right) => right.value - left.value)
+      .map((entry, index) => ({
+        ...entry,
+        color: CATEGORY_COLORS[(index + colorOffset) % CATEGORY_COLORS.length],
+      }));
   }
 
-  const visibleEntries = sortedEntries.slice(0, 4).map((entry, index) => ({
-    ...entry,
-    color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-  }));
-
-  const otherValue = sortedEntries.slice(4).reduce((sum, entry) => sum + entry.value, 0);
-
-  visibleEntries.push({
-    key: 'other',
-    name: 'Other',
-    type: 'mixed',
-    value: otherValue,
-    color: CATEGORY_COLORS[4 % CATEGORY_COLORS.length],
-  });
-
-  return visibleEntries;
+  return {
+    income: decorateEntries(Array.from(totalsByType.income.values())),
+    expense: decorateEntries(Array.from(totalsByType.expense.values()), 3),
+  };
 }
 
 function buildContributionBreakdown(transactions, members, currentUser) {
@@ -225,6 +219,89 @@ function EmptyState({ title, description }) {
     <div className="flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center">
       <p className="text-base font-semibold text-slate-900">{title}</p>
       <p className="mt-2 max-w-sm text-sm text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function CategoryPieSection({ title, entries, currency, pieChartWidth, pieChartHeight }) {
+  const total = entries.reduce((sum, entry) => sum + entry.value, 0);
+  const topEntries = entries.slice(0, 3);
+
+  if (entries.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-8 text-center">
+        <p className="text-sm font-semibold text-slate-900">No {title.toLowerCase()} categories</p>
+        <p className="mt-2 text-sm text-slate-500">This period has no {title.toLowerCase()} transactions to chart yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 rounded-2xl border border-slate-200 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-base font-semibold text-slate-900">{title}</p>
+          <p className="text-sm text-slate-500">{entries.length} categories represented in the chart.</p>
+        </div>
+        <p className="text-sm font-semibold text-slate-900">{formatCurrency(total, currency)}</p>
+      </div>
+
+      <div className="flex justify-center">
+        <PieChart width={pieChartWidth} height={pieChartHeight}>
+          <Tooltip
+            formatter={(value, name, item) => [
+              formatCurrency(Number(value) || 0, currency),
+              item?.payload?.name || name,
+            ]}
+            contentStyle={{
+              borderRadius: '12px',
+              borderColor: '#e2e8f0',
+              boxShadow: '0 12px 30px rgba(15, 23, 42, 0.10)',
+            }}
+          />
+          <Pie
+            data={entries}
+            dataKey="value"
+            nameKey="name"
+            innerRadius={56}
+            outerRadius={86}
+            paddingAngle={1.5}
+            strokeWidth={0}
+          >
+            {entries.map((entry) => (
+              <Cell key={entry.key} fill={entry.color} />
+            ))}
+          </Pie>
+        </PieChart>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-900">Top 3 categories</p>
+          <p className="text-xs text-slate-500">The chart includes all categories in this period.</p>
+        </div>
+        {topEntries.map((entry) => {
+          const percentage = total > 0 ? (entry.value / total) * 100 : 0;
+
+          return (
+            <div key={entry.key} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: entry.color }}
+                  />
+                  <p className="truncate text-sm font-medium text-slate-900">{entry.name}</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{formatPercent(percentage)} of {title.toLowerCase()} total</p>
+              </div>
+              <p className="text-sm font-semibold text-slate-900">
+                {formatCurrency(entry.value, currency)}
+              </p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -414,9 +491,8 @@ export default function Dashboard() {
   }
 
   const categoryMap = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
-  const totalCategoryValue = categoryBreakdown.reduce((sum, category) => sum + category.value, 0);
-  const pieChartWidth = isMobile ? 240 : 280;
-  const pieChartHeight = isMobile ? 220 : 260;
+  const pieChartWidth = isMobile ? 220 : 240;
+  const pieChartHeight = isMobile ? 200 : 220;
   const contributionChartWidth = isMobile ? 300 : 560;
   const contributionChartHeight = 240;
 
@@ -593,68 +669,27 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {breakdownMode === 'category' ? (
-              categoryBreakdown.length === 0 ? (
+              categoryBreakdown.income.length === 0 && categoryBreakdown.expense.length === 0 ? (
                 <EmptyState
                   title="No category breakdown yet"
                   description="Once this ledger has categorized activity, the chart will show where money is moving."
                 />
               ) : (
-                <div className="grid gap-6 2xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1fr)] 2xl:items-center">
-                  <div className="mx-auto flex w-full max-w-[280px] justify-center">
-                    <PieChart width={pieChartWidth} height={pieChartHeight}>
-                      <Tooltip
-                        formatter={(value, name, item) => [
-                          formatCurrency(Number(value) || 0, currentLedger.currency),
-                          item?.payload?.name || name,
-                        ]}
-                        contentStyle={{
-                          borderRadius: '12px',
-                          borderColor: '#e2e8f0',
-                          boxShadow: '0 12px 30px rgba(15, 23, 42, 0.10)',
-                        }}
-                      />
-                      <Pie
-                        data={categoryBreakdown}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={62}
-                        outerRadius={92}
-                        paddingAngle={2}
-                        strokeWidth={0}
-                      >
-                        {categoryBreakdown.map((entry) => (
-                          <Cell key={entry.key} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </div>
-
-                  <div className="space-y-3">
-                    {categoryBreakdown.map((entry) => {
-                      const percentage = totalCategoryValue > 0 ? (entry.value / totalCategoryValue) * 100 : 0;
-
-                      return (
-                        <div key={entry.key} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: entry.color }}
-                              />
-                              <p className="truncate text-sm font-medium text-slate-900">{entry.name}</p>
-                              <Badge variant="outline" className="hidden sm:inline-flex">
-                                {entry.type}
-                              </Badge>
-                            </div>
-                            <p className="mt-1 text-xs text-slate-500">{formatPercent(percentage)} of the selected flow</p>
-                          </div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {formatCurrency(entry.value, currentLedger.currency)}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <CategoryPieSection
+                    title="Income"
+                    entries={categoryBreakdown.income}
+                    currency={currentLedger.currency}
+                    pieChartWidth={pieChartWidth}
+                    pieChartHeight={pieChartHeight}
+                  />
+                  <CategoryPieSection
+                    title="Expense"
+                    entries={categoryBreakdown.expense}
+                    currency={currentLedger.currency}
+                    pieChartWidth={pieChartWidth}
+                    pieChartHeight={pieChartHeight}
+                  />
                 </div>
               )
             ) : contributionMembers.length === 0 ? (
