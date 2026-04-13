@@ -72,11 +72,33 @@ export function normalizeTransactionForEdit(transaction) {
   };
 }
 
+export function normalizeTransactionDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value?.toDate === 'function') {
+    const converted = value.toDate();
+    return converted instanceof Date && !Number.isNaN(converted.getTime()) ? converted : null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function groupTransactionsByMonth(transactions) {
   const groupedTransactions = {};
 
   transactions.forEach((transaction) => {
-    const date = new Date(transaction.date);
+    const date = normalizeTransactionDate(transaction.date);
+    if (!date) {
+      return;
+    }
+
     const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
     if (!groupedTransactions[monthKey]) {
@@ -97,7 +119,11 @@ export function groupTransactionsByMonth(transactions) {
           year: 'numeric',
           month: 'long',
         }),
-        transactions: groupedTransactions[monthKey],
+        transactions: [...groupedTransactions[monthKey]].sort((left, right) => {
+          const leftDate = normalizeTransactionDate(left.date);
+          const rightDate = normalizeTransactionDate(right.date);
+          return (rightDate?.getTime() || 0) - (leftDate?.getTime() || 0);
+        }),
       };
     });
 }

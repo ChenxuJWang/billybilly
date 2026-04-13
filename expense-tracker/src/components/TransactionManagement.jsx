@@ -9,6 +9,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   Timestamp,
@@ -211,6 +212,45 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
   }, [currentLedger, fetchCategories, fetchMembers, fetchTransactions]);
 
   useEffect(() => {
+    if (!currentLedger) {
+      return undefined;
+    }
+
+    const transactionsQuery = query(
+      collection(db, 'ledgers', currentLedger.id, 'transactions'),
+      orderBy('date', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(
+      transactionsQuery,
+      (transactionsSnapshot) => {
+        setTransactions(
+          transactionsSnapshot.docs.map((transactionSnapshot) => {
+            const transaction = transactionSnapshot.data();
+            return {
+              id: transactionSnapshot.id,
+              ...transaction,
+              date: transaction.date?.toDate?.() || new Date(),
+            };
+          })
+        );
+      },
+      (snapshotError) => {
+        console.error('Error subscribing to transactions:', snapshotError);
+        setError('Failed to keep transactions up to date');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentLedger]);
+
+  useEffect(() => {
+    if (!showImportPage && location.state?.refreshTransactions) {
+      fetchTransactions();
+    }
+  }, [fetchTransactions, location.state, showImportPage]);
+
+  useEffect(() => {
     if (!currentUser) {
       return;
     }
@@ -410,7 +450,7 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
       <DataImport
         debugModeEnabled={debugModeEnabled}
         thinkingModeEnabled={thinkingModeEnabled}
-        onBack={() => navigate('/transactions')}
+        onBack={() => navigate('/transactions', { state: { refreshTransactions: Date.now() } })}
       />
     );
   }
