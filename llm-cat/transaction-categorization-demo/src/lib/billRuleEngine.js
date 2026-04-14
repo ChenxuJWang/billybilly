@@ -1,3 +1,5 @@
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
 const createId = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 
 export const INTERNAL_TRANSACTION_TYPES = ['Income', 'Expense', 'Neutral'];
@@ -58,6 +60,7 @@ export const DEFAULT_BILL_CONFIGS = [
   {
     id: 'wechat',
     name: 'WeChat Pay',
+    importPreset: 'csv',
     encoding: 'utf-8',
     headerLineNumber: 17,
     mappings: {
@@ -85,6 +88,7 @@ export const DEFAULT_BILL_CONFIGS = [
   {
     id: 'alipay',
     name: 'Alipay',
+    importPreset: 'csv',
     encoding: 'gb2312',
     headerLineNumber: 25,
     mappings: {
@@ -107,6 +111,29 @@ export const DEFAULT_BILL_CONFIGS = [
       { id: createId('catmap'), source: '退款', target: 'Refund' },
       { id: createId('catmap'), source: '其他', target: 'Other' },
     ],
+    transactionTypeMappings: {
+      income: '收入',
+      expense: '支出',
+    },
+  },
+  {
+    id: 'bank-of-china-pdf',
+    name: 'Bank Of China PDF',
+    importPreset: 'bankOfChinaPdf',
+    locked: true,
+    encoding: 'utf-8',
+    headerLineNumber: 1,
+    mappings: {
+      transactionTime: '交易时间',
+      transactionCategory: '交易分类',
+      transactionType: '收/支',
+      counterpartName: '交易对方',
+      description: '商品说明',
+      amount: '金额',
+      source: '支付方式',
+      transactionStatus: '交易状态',
+    },
+    categoryMappings: [],
     transactionTypeMappings: {
       income: '收入',
       expense: '支出',
@@ -166,6 +193,7 @@ export const DEFAULT_RULES = [
 export const createEmptyBillConfig = (name = 'Custom bill type') => ({
   id: createId('bill'),
   name,
+  importPreset: 'csv',
   encoding: 'utf-8',
   headerLineNumber: 1,
   mappings: REQUIRED_FIELDS.reduce((result, field) => {
@@ -356,6 +384,309 @@ const evaluateCondition = (value, matcher, pattern) => {
 };
 
 const getCellValue = (row, index) => (index > -1 ? String(row[index] || '').trim() : '');
+
+const BANK_OF_CHINA_PDF_COLUMNS = [
+  '记账日期',
+  '记账时间',
+  '币别',
+  '金额',
+  '余额',
+  '交易名称',
+  '渠道',
+  '网点名称',
+  '附言',
+  '对方账户名',
+  '对方卡号/账号',
+  '对方开户行',
+];
+
+const BANK_OF_CHINA_NORMALIZED_HEADERS = [
+  '交易时间',
+  '交易分类',
+  '收/支',
+  '交易对方',
+  '商品说明',
+  '金额',
+  '支付方式',
+  '交易状态',
+  ...BANK_OF_CHINA_PDF_COLUMNS,
+];
+
+const BANK_OF_CHINA_TITLE = '中国银行交易流水明细清单';
+
+const getFileExtension = (fileName = '') => fileName.split('.').pop()?.toLowerCase() || '';
+
+const escapeCsvValue = (value) => {
+  const stringValue = String(value ?? '');
+
+  if (/[",\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+
+  return stringValue;
+};
+
+const toCsvLine = (values) => values.map((value) => escapeCsvValue(value)).join(',');
+
+const normalizePdfText = (value) =>
+  String(value || '')
+    .split('\0')
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const groupPdfItemsByLine = (items, tolerance = 2.5) => {
+  const sortedItems = (items || [])
+    .map((item) => ({
+      text: normalizePdfText(item?.str),
+      x: Number(item?.transform?.[4] || 0),
+      y: Number(item?.transform?.[5] || 0),
+      width: Number(item?.width || 0),
+    }))
+    .filter((item) => item.text)
+    .sort((left, right) => {
+      if (Math.abs(right.y - left.y) > tolerance) {
+        return right.y - left.y;
+      }
+
+      return left.x - right.x;
+    });
+
+  const lines = [];
+
+  for (const item of sortedItems) {
+    const currentLine = lines[lines.length - 1];
+
+    if (currentLine && Math.abs(currentLine.y - item.y) <= tolerance) {
+      currentLine.items.push(item);
+      continue;
+    }
+
+    lines.push({
+      y: item.y,
+      items: [item],
+    });
+  }
+
+  return lines.map((line) => ({
+    ...line,
+    items: line.items.sort((left, right) => left.x - right.x),
+  }));
+};
+
+const countMatchingBankOfChinaHeaders = (line) =>
+  BANK_OF_CHINA_PDF_COLUMNS.filter((header) =>
+    line.items.some((item) => item.text.includes(header) || header.includes(item.text))
+  ).length;
+
+const getBankOfChinaColumnSpecs = (headerLine) => {
+  const headerMatches = BANK_OF_CHINA_PDF_COLUMNS.map((header) => {
+    const matchedItem = headerLine.items.find(
+      (item) => item.text.includes(header) || header.includes(item.text)
+    );
+
+    return matchedItem
+      ? {
+          header,
+          centerX: matchedItem.x + matchedItem.width / 2,
+        }
+      : null;
+  }).filter(Boolean);
+
+  if (headerMatches.length < 8) {
+    throw new Error('Could not detect the table columns in the PDF statement.');
+  }
+
+  return headerMatches
+    .sort((left, right) => left.centerX - right.centerX)
+    .map((match, index, matches) => ({
+      ...match,
+      minX:
+        index === 0 ? Number.NEGATIVE_INFINITY : (matches[index - 1].centerX + match.centerX) / 2,
+      maxX:
+        index === matches.length - 1
+          ? Number.POSITIVE_INFINITY
+          : (match.centerX + matches[index + 1].centerX) / 2,
+    }));
+};
+
+const getBankOfChinaColumnForItem = (item, columnSpecs) => {
+  const itemCenterX = item.x + item.width / 2;
+  return columnSpecs.find((spec) => itemCenterX >= spec.minX && itemCenterX < spec.maxX);
+};
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const isBankOfChinaDataRowStart = (line, columnSpecs) => {
+  const firstColumn = columnSpecs[0];
+
+  if (!firstColumn) {
+    return false;
+  }
+
+  return line.items.some((item) => item.x < firstColumn.maxX && DATE_ONLY_PATTERN.test(item.text));
+};
+
+const isBankOfChinaFooterLine = (line) =>
+  line.items.some(
+    (item) =>
+      item.text.includes('温馨提示') ||
+      item.text.includes('END') ||
+      /第\s*\d+\s*页/.test(item.text) ||
+      /共\s*\d+\s*页/.test(item.text)
+  );
+
+const joinPdfCellText = (items, tolerance = 2.5) => {
+  const sortedItems = [...(items || [])].sort((left, right) => {
+    if (Math.abs(right.y - left.y) > tolerance) {
+      return right.y - left.y;
+    }
+
+    return left.x - right.x;
+  });
+
+  const lines = [];
+
+  for (const item of sortedItems) {
+    const currentLine = lines[lines.length - 1];
+
+    if (currentLine && Math.abs(currentLine.y - item.y) <= tolerance) {
+      currentLine.parts.push(item.text);
+      continue;
+    }
+
+    lines.push({
+      y: item.y,
+      parts: [item.text],
+    });
+  }
+
+  return lines
+    .map((line) => line.parts.join(''))
+    .join('')
+    .trim();
+};
+
+const getBankOfChinaRowCells = (rowLines, columnSpecs) => {
+  const cells = BANK_OF_CHINA_PDF_COLUMNS.reduce((result, header) => {
+    result[header] = [];
+    return result;
+  }, {});
+
+  for (const line of rowLines) {
+    for (const item of line.items) {
+      const column = getBankOfChinaColumnForItem(item, columnSpecs);
+
+      if (!column) {
+        continue;
+      }
+
+      cells[column.header].push(item);
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(cells).map(([header, items]) => [header, joinPdfCellText(items)])
+  );
+};
+
+const getBankOfChinaNormalizedTransactionType = (amount) => {
+  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount === 0) {
+    return 'Neutral';
+  }
+
+  return amount > 0 ? '收入' : '支出';
+};
+
+const getBankOfChinaAbsoluteAmount = (rawAmount, amountValue) => {
+  if (typeof amountValue === 'number' && Number.isFinite(amountValue)) {
+    return Math.abs(amountValue).toFixed(2);
+  }
+
+  return String(rawAmount || '').replace(/^-/, '').trim();
+};
+
+const normalizeBankOfChinaPdfRow = (row) => {
+  const amountValue = parseAmount(row['金额']);
+  const transactionType = getBankOfChinaNormalizedTransactionType(amountValue);
+
+  return {
+    交易时间: [row['记账日期'], row['记账时间']].filter(Boolean).join(' '),
+    交易分类: row['交易名称'] || '',
+    '收/支': transactionType,
+    交易对方: row['对方账户名'] || '',
+    商品说明: row['附言'] || '',
+    金额: getBankOfChinaAbsoluteAmount(row['金额'], amountValue),
+    支付方式: row['币别'] || '',
+    交易状态: row['渠道'] || '',
+    ...row,
+  };
+};
+
+const extractBankOfChinaRowsFromPage = (items) => {
+  const lines = groupPdfItemsByLine(items);
+  const headerLineIndex = lines.findIndex((line) => countMatchingBankOfChinaHeaders(line) >= 8);
+
+  if (headerLineIndex === -1) {
+    return [];
+  }
+
+  const columnSpecs = getBankOfChinaColumnSpecs(lines[headerLineIndex]);
+  const contentLines = lines.slice(headerLineIndex + 1).filter((line) => !isBankOfChinaFooterLine(line));
+  const rowStartIndexes = contentLines
+    .map((line, index) => (isBankOfChinaDataRowStart(line, columnSpecs) ? index : -1))
+    .filter((index) => index >= 0);
+
+  return rowStartIndexes.map((startIndex, index) => {
+    const endIndex = rowStartIndexes[index + 1] ?? contentLines.length;
+    const rowLines = contentLines.slice(startIndex, endIndex);
+    return getBankOfChinaRowCells(rowLines, columnSpecs);
+  });
+};
+
+const convertBankOfChinaPdfToCsv = async (buffer) => {
+  const pdfjs = await import('pdfjs-dist/build/pdf.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  const pdfDocument = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useWorkerFetch: false,
+  }).promise;
+
+  const normalizedRows = [];
+  let detectedBankOfChinaTitle = false;
+
+  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+    const page = await pdfDocument.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const pageLines = groupPdfItemsByLine(textContent.items);
+
+    if (!detectedBankOfChinaTitle) {
+      detectedBankOfChinaTitle = pageLines.some((line) =>
+        line.items.some((item) => item.text.includes(BANK_OF_CHINA_TITLE))
+      );
+    }
+
+    const pageRows = extractBankOfChinaRowsFromPage(textContent.items).map((row) =>
+      normalizeBankOfChinaPdfRow(row)
+    );
+
+    normalizedRows.push(...pageRows);
+  }
+
+  if (!normalizedRows.length) {
+    const errorMessage = detectedBankOfChinaTitle
+      ? 'No transaction rows were detected in the Bank of China PDF.'
+      : 'Unsupported PDF layout. This prototype currently supports the Bank of China statement sample.';
+    throw new Error(errorMessage);
+  }
+
+  return [
+    toCsvLine(BANK_OF_CHINA_NORMALIZED_HEADERS),
+    ...normalizedRows.map((row) =>
+      toCsvLine(BANK_OF_CHINA_NORMALIZED_HEADERS.map((header) => row[header] || ''))
+    ),
+  ].join('\n');
+};
 
 const parseAmount = (value) => {
   const cleaned = String(value || '')
@@ -667,8 +998,8 @@ export const hydrateRule = (rule) => ({
   })),
 });
 
-export const readBillFileText = async (file, encoding) => {
-  const extension = file.name.split('.').pop()?.toLowerCase();
+export const readBillFileText = async (file, encoding, config = null) => {
+  const extension = getFileExtension(file?.name);
 
   if (extension === 'xlsx') {
     const { read, utils } = await import('xlsx');
@@ -683,6 +1014,18 @@ export const readBillFileText = async (file, encoding) => {
     return utils.sheet_to_csv(workbook.Sheets[firstSheetName], {
       blankrows: false,
     });
+  }
+
+  if (extension === 'pdf') {
+    const buffer = await file.arrayBuffer();
+    const importPreset =
+      config?.importPreset && config.importPreset !== 'csv' ? config.importPreset : 'bankOfChinaPdf';
+
+    if (importPreset === 'bankOfChinaPdf') {
+      return convertBankOfChinaPdfToCsv(buffer);
+    }
+
+    throw new Error(`Unsupported PDF import preset: ${importPreset}`);
   }
 
   const buffer = await file.arrayBuffer();

@@ -69,6 +69,24 @@ const writeStorage = (key, value) => {
   window.localStorage.setItem(key, JSON.stringify(value));
 };
 
+const getFileExtension = (fileName = '') => fileName.split('.').pop()?.toLowerCase() || '';
+
+const isLockedBillConfig = (config) => Boolean(config?.locked);
+
+const mergeDefaultBillConfigs = (storedConfigs = []) => {
+  const hydratedStoredConfigs = (storedConfigs || []).map(hydrateBillConfig);
+  const defaultConfigMap = new Map(DEFAULT_BILL_CONFIGS.map((config) => [config.id, hydrateBillConfig(config)]));
+  const mergedConfigs = hydratedStoredConfigs.map((config) =>
+    isLockedBillConfig(defaultConfigMap.get(config.id)) ? defaultConfigMap.get(config.id) : config
+  );
+  const mergedConfigIds = new Set(mergedConfigs.map((config) => config.id));
+  const missingDefaultConfigs = Array.from(defaultConfigMap.values()).filter(
+    (config) => !mergedConfigIds.has(config.id)
+  );
+
+  return [...mergedConfigs, ...missingDefaultConfigs];
+};
+
 const formatAmount = (amount, rawAmount) => {
   if (typeof amount === 'number' && Number.isFinite(amount)) {
     return `¥${amount.toFixed(2)}`;
@@ -256,8 +274,15 @@ const toYaml = (value, indent = 0) => {
   return `${prefix}${formatYamlScalar(value)}`;
 };
 
-const getStoredBillConfigs = () =>
-  (readStorage(CONFIG_STORAGE_KEY, DEFAULT_BILL_CONFIGS) || DEFAULT_BILL_CONFIGS).map(hydrateBillConfig);
+const getStoredBillConfigs = () => {
+  const storedConfigs = readStorage(CONFIG_STORAGE_KEY, null);
+
+  if (!storedConfigs) {
+    return DEFAULT_BILL_CONFIGS.map(hydrateBillConfig);
+  }
+
+  return mergeDefaultBillConfigs(storedConfigs);
+};
 
 const getStoredRules = () => (readStorage(RULE_STORAGE_KEY, DEFAULT_RULES) || DEFAULT_RULES).map(hydrateRule);
 
@@ -317,6 +342,7 @@ function App() {
 
   const selectedConfig =
     billConfigs.find((config) => config.id === selectedConfigId) || billConfigs[0] || DEFAULT_BILL_CONFIGS[0];
+  const isSelectedConfigLocked = isLockedBillConfig(selectedConfig);
 
   const detectedBillCategories = Array.from(
     new Set(parsedTransactions.map((transaction) => transaction.transactionCategory).filter(Boolean))
@@ -389,7 +415,7 @@ function App() {
       setError('');
 
       try {
-        const text = await readBillFileText(uploadedFile, selectedConfig.encoding);
+        const text = await readBillFileText(uploadedFile, selectedConfig.encoding, selectedConfig);
         const result = parseBillText(text, selectedConfig);
 
         setRawText(text);
@@ -414,6 +440,10 @@ function App() {
   }, [uploadedFile, billConfigs, selectedConfig]);
 
   const updateSelectedConfig = (patch) => {
+    if (isSelectedConfigLocked) {
+      return;
+    }
+
     setBillConfigs((currentConfigs) =>
       currentConfigs.map((config) =>
         config.id === selectedConfigId ? hydrateBillConfig({ ...config, ...patch }) : config
@@ -422,6 +452,10 @@ function App() {
   };
 
   const updateSelectedMapping = (fieldKey, value) => {
+    if (isSelectedConfigLocked) {
+      return;
+    }
+
     setBillConfigs((currentConfigs) =>
       currentConfigs.map((config) =>
         config.id === selectedConfigId
@@ -438,6 +472,10 @@ function App() {
   };
 
   const updateSelectedCategoryMapping = (mappingId, patch) => {
+    if (isSelectedConfigLocked) {
+      return;
+    }
+
     setBillConfigs((currentConfigs) =>
       currentConfigs.map((config) =>
         config.id === selectedConfigId
@@ -453,6 +491,10 @@ function App() {
   };
 
   const updateSelectedTransactionTypeMapping = (typeKey, value) => {
+    if (isSelectedConfigLocked) {
+      return;
+    }
+
     setBillConfigs((currentConfigs) =>
       currentConfigs.map((config) =>
         config.id === selectedConfigId
@@ -469,6 +511,10 @@ function App() {
   };
 
   const handleAddCategoryMapping = (source = '') => {
+    if (isSelectedConfigLocked) {
+      return;
+    }
+
     setBillConfigs((currentConfigs) =>
       currentConfigs.map((config) =>
         config.id === selectedConfigId
@@ -482,6 +528,10 @@ function App() {
   };
 
   const handleRemoveCategoryMapping = (mappingId) => {
+    if (isSelectedConfigLocked) {
+      return;
+    }
+
     setBillConfigs((currentConfigs) =>
       currentConfigs.map((config) =>
         config.id === selectedConfigId
@@ -501,9 +551,24 @@ function App() {
       return;
     }
 
+    const extension = getFileExtension(nextFile.name);
+    const pdfPresetConfig =
+      extension === 'pdf'
+        ? billConfigs.find((config) => config.importPreset === 'bankOfChinaPdf')
+        : null;
+
+    if (pdfPresetConfig && selectedConfigId !== pdfPresetConfig.id) {
+      setSelectedConfigId(pdfPresetConfig.id);
+    }
+
     setUploadedFile(nextFile);
-    setStatusMessage(`Loaded ${nextFile.name}.`);
+    setStatusMessage(
+      pdfPresetConfig && extension === 'pdf'
+        ? `Loaded ${nextFile.name} and switched to ${pdfPresetConfig.name}.`
+        : `Loaded ${nextFile.name}.`
+    );
     setRuleDraft(null);
+    setError('');
   };
 
   const handleCreateConfig = () => {
@@ -514,7 +579,7 @@ function App() {
   };
 
   const handleDuplicateConfig = () => {
-    if (!selectedConfig) {
+    if (!selectedConfig || isSelectedConfigLocked) {
       return;
     }
 
@@ -798,7 +863,7 @@ function App() {
       }
 
       const nextBillConfigs = Array.isArray(parsed.billConfigs)
-        ? parsed.billConfigs.map(hydrateBillConfig)
+        ? mergeDefaultBillConfigs(parsed.billConfigs)
         : [];
       const nextRules = Array.isArray(parsed.rules) ? parsed.rules.map(hydrateRule) : [];
       const nextCategories = Array.isArray(parsed.categories)
@@ -857,8 +922,8 @@ function App() {
                 Transaction Rule Engine Workbench
               </h1>
               <p className="max-w-3xl text-base leading-7 text-slate-600">
-                Configure bill formats manually, parse real Alipay or WeChat CSVs, review the mislabels,
-                and turn each correction into a reusable matching rule.
+                Configure bill formats manually, parse real Alipay, WeChat, or supported bank PDFs,
+                review the mislabels, and turn each correction into a reusable matching rule.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -898,11 +963,13 @@ function App() {
                       Bill Format Configuration
                     </CardTitle>
                     <CardDescription>
-                      Choose a bill type, then override encoding, header row, field mappings, and type mappings.
+                      {isSelectedConfigLocked
+                        ? 'This built-in PDF preset is read-only and compiled directly from the statement layout.'
+                        : 'Choose a bill type, then override encoding, header row, field mappings, and type mappings.'}
                     </CardDescription>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={handleDuplicateConfig}>
+                    <Button variant="outline" size="sm" onClick={handleDuplicateConfig} disabled={isSelectedConfigLocked}>
                       <Plus className="mr-2 h-4 w-4" />
                       Duplicate
                     </Button>
@@ -934,6 +1001,7 @@ function App() {
                     <Label>Display name</Label>
                     <Input
                       value={selectedConfig?.name || ''}
+                      disabled={isSelectedConfigLocked}
                       onChange={(event) => updateSelectedConfig({ name: event.target.value })}
                     />
                   </div>
@@ -942,6 +1010,7 @@ function App() {
                     <Select
                       value={selectedConfig?.encoding || 'utf-8'}
                       onValueChange={(value) => updateSelectedConfig({ encoding: value })}
+                      disabled={isSelectedConfigLocked}
                     >
                       <SelectTrigger>
                         <SelectValue />
@@ -957,6 +1026,7 @@ function App() {
                     <Input
                       type="number"
                       min="1"
+                      disabled={isSelectedConfigLocked}
                       value={selectedConfig?.headerLineNumber || 1}
                       onChange={(event) =>
                         updateSelectedConfig({
@@ -967,12 +1037,25 @@ function App() {
                   </div>
                 </div>
 
+                {selectedConfig?.importPreset === 'bankOfChinaPdf' && (
+                  <Alert className="border-sky-200 bg-sky-50">
+                    <FileSpreadsheet className="h-4 w-4" />
+                    <AlertDescription>
+                      This is a locked built-in preset. It compiles `记账日期 + 记账时间` into transaction time,
+                      uses `交易名称` as category, derives income or expense from the sign of `金额`, uses
+                      `对方账户名` as counterpart, `附言` as description, the absolute value of `金额` as amount,
+                      `币别` as source, and `渠道` as transaction status.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <div className="grid gap-4 md:grid-cols-2">
                   {REQUIRED_FIELDS.map((field) => (
                     <div key={field.key} className="space-y-2">
                       <Label>{field.label}</Label>
                       <Select
                         value={selectedConfig?.mappings?.[field.key] || '__unmapped__'}
+                        disabled={isSelectedConfigLocked}
                         onValueChange={(value) =>
                           updateSelectedMapping(field.key, value === '__unmapped__' ? '' : value)
                         }
@@ -998,16 +1081,23 @@ function App() {
                     <div>
                       <p className="text-sm font-medium text-slate-900">Bill Category Mapping</p>
                       <p className="text-sm text-slate-600">
-                        Map bill-native categories into the internal categories used by this prototype.
+                        {isSelectedConfigLocked
+                          ? 'This locked preset does not allow category mapping edits.'
+                          : 'Map bill-native categories into the internal categories used by this prototype.'}
                       </p>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => handleAddCategoryMapping()}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAddCategoryMapping()}
+                      disabled={isSelectedConfigLocked}
+                    >
                       <Plus className="mr-2 h-4 w-4" />
                       Add Mapping
                     </Button>
                   </div>
 
-                  {unmappedBillCategories.length > 0 && (
+                  {!isSelectedConfigLocked && unmappedBillCategories.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Detected In Current File</p>
                       <div className="flex flex-wrap gap-2">
@@ -1042,6 +1132,7 @@ function App() {
                           <Input
                             value={mapping.source}
                             placeholder="e.g. 餐饮美食"
+                            disabled={isSelectedConfigLocked}
                             onChange={(event) =>
                               updateSelectedCategoryMapping(mapping.id, { source: event.target.value })
                             }
@@ -1051,6 +1142,7 @@ function App() {
                           <Label>Internal category</Label>
                           <Select
                             value={mapping.target || '__empty__'}
+                            disabled={isSelectedConfigLocked}
                             onValueChange={(value) =>
                               updateSelectedCategoryMapping(mapping.id, {
                                 target: value === '__empty__' ? '' : value,
@@ -1071,7 +1163,12 @@ function App() {
                           </Select>
                         </div>
                         <div className="flex items-end">
-                          <Button variant="ghost" size="icon" onClick={() => handleRemoveCategoryMapping(mapping.id)}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveCategoryMapping(mapping.id)}
+                            disabled={isSelectedConfigLocked}
+                          >
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -1084,7 +1181,9 @@ function App() {
                   <div>
                     <p className="text-sm font-medium text-slate-900">Transaction Type Mapping</p>
                     <p className="text-sm text-slate-600">
-                      Map the raw values from the selected transaction type field to internal types.
+                      {isSelectedConfigLocked
+                        ? 'This locked preset derives transaction type from the sign of 金额, so mapping is not editable.'
+                        : 'Map the raw values from the selected transaction type field to internal types.'}
                     </p>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
@@ -1092,6 +1191,7 @@ function App() {
                       <Label>Income value</Label>
                       <Select
                         value={selectedConfig?.transactionTypeMappings?.income || '__empty__'}
+                        disabled={isSelectedConfigLocked}
                         onValueChange={(value) =>
                           updateSelectedTransactionTypeMapping('income', value === '__empty__' ? '' : value)
                         }
@@ -1113,6 +1213,7 @@ function App() {
                       <Label>Expense value</Label>
                       <Select
                         value={selectedConfig?.transactionTypeMappings?.expense || '__empty__'}
+                        disabled={isSelectedConfigLocked}
                         onValueChange={(value) =>
                           updateSelectedTransactionTypeMapping('expense', value === '__empty__' ? '' : value)
                         }
@@ -1172,7 +1273,7 @@ function App() {
                   <Label>Bill file</Label>
                   <Input
                     type="file"
-                    accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept=".csv,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     onChange={handleFileChange}
                   />
                 </div>

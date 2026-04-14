@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   plugins: [react(),tailwindcss()],
   optimizeDeps: {
-    include: ['xlsx', 'js-yaml'],
+    include: ['xlsx', 'js-yaml', 'pdfjs-dist/build/pdf.mjs'],
   },
   resolve: {
     alias: {
