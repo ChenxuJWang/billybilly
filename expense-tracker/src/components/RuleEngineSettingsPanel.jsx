@@ -42,6 +42,7 @@ import {
   describeCondition,
   getPreviewLines,
   hydrateRuleEngineSettings,
+  isLockedBillConfig,
   parseBillText,
   parseRuleEngineSettingsFromYaml,
   readBillFileText,
@@ -136,6 +137,8 @@ export default function RuleEngineSettingsPanel({
     localSettings.billConfigs.find((config) => config.id === localSettings.selectedBillConfigId) ||
     localSettings.billConfigs[0] ||
     null;
+  const selectedConfigLocked = isLockedBillConfig(selectedConfig);
+  const canEditSelectedConfig = isEditingConfig && !selectedConfigLocked;
   const categoryOptions = Array.from(
     new Set(categories.map((category) => category.name).filter(Boolean))
   ).sort((left, right) => left.localeCompare(right));
@@ -199,7 +202,7 @@ export default function RuleEngineSettingsPanel({
       setPreviewError('');
 
       try {
-        const rawText = await readBillFileText(previewFile, selectedConfig.encoding);
+        const rawText = await readBillFileText(previewFile, selectedConfig.encoding, selectedConfig);
         const parsed = parseBillText(rawText, selectedConfig, categories);
         const reviewed = applyRulesToTransactions(
           parsed.transactions,
@@ -523,6 +526,7 @@ export default function RuleEngineSettingsPanel({
       ...selectedConfig,
       id: createEmptyBillConfig(`${selectedConfig.name} Copy`).id,
       name: `${selectedConfig.name} Copy`,
+      locked: false,
       categoryMappings: (selectedConfig.categoryMappings || []).map((mapping) => ({
         ...mapping,
         id: createEmptyCategoryMapping().id,
@@ -541,6 +545,11 @@ export default function RuleEngineSettingsPanel({
 
   function handleDeleteConfig() {
     if (!selectedConfig) {
+      return;
+    }
+
+    if (selectedConfigLocked) {
+      setErrorMessage('This built-in config is read-only and cannot be deleted.');
       return;
     }
 
@@ -807,7 +816,7 @@ export default function RuleEngineSettingsPanel({
               <Button
                 variant="outline"
                 onClick={() => setIsEditingConfig((currentValue) => !currentValue)}
-                disabled={!selectedConfig}
+                disabled={!selectedConfig || selectedConfigLocked}
               >
                 <PencilLine className="mr-2 h-4 w-4" />
                 {isEditingConfig ? 'Done Editing' : 'Edit'}
@@ -816,7 +825,11 @@ export default function RuleEngineSettingsPanel({
                 <Copy className="mr-2 h-4 w-4" />
                 Duplicate
               </Button>
-              <Button variant="ghost" onClick={handleDeleteConfig} disabled={!selectedConfig}>
+              <Button
+                variant="ghost"
+                onClick={handleDeleteConfig}
+                disabled={!selectedConfig || selectedConfigLocked}
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
               </Button>
@@ -824,6 +837,15 @@ export default function RuleEngineSettingsPanel({
 
             {selectedConfig && (
               <>
+                {selectedConfigLocked && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      This is a built-in read-only PDF preset for supported Bank of China statements.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <div className="space-y-2">
                     <Label>Available configs</Label>
@@ -853,7 +875,7 @@ export default function RuleEngineSettingsPanel({
 
                   <div className="space-y-2">
                     <Label>Config name</Label>
-                    {isEditingConfig ? (
+                    {canEditSelectedConfig ? (
                       <Input
                         value={selectedConfig.name || ''}
                         onChange={(event) => updateSelectedConfig({ name: event.target.value })}
@@ -867,7 +889,7 @@ export default function RuleEngineSettingsPanel({
 
                   <div className="space-y-2">
                     <Label>Encoding</Label>
-                    {isEditingConfig ? (
+                    {canEditSelectedConfig ? (
                       <Select
                         value={selectedConfig.encoding || 'utf-8'}
                         onValueChange={(nextEncoding) =>
@@ -891,7 +913,7 @@ export default function RuleEngineSettingsPanel({
 
                   <div className="space-y-2">
                     <Label>Header row</Label>
-                    {isEditingConfig ? (
+                    {canEditSelectedConfig ? (
                       <Input
                         type="number"
                         min="1"
@@ -914,7 +936,7 @@ export default function RuleEngineSettingsPanel({
                   <div className="mb-4">
                     <p className="text-sm font-medium text-slate-900">Field Mappings</p>
                     <p className="text-sm text-slate-600">
-                      {isEditingConfig
+                      {canEditSelectedConfig
                         ? 'Edit the source column names stored in this config.'
                         : 'Current source column mappings stored in this config.'}
                     </p>
@@ -923,7 +945,7 @@ export default function RuleEngineSettingsPanel({
                     {REQUIRED_FIELDS.map((field) => (
                       <div key={field.key} className="space-y-2">
                         <Label>{field.label}</Label>
-                        {isEditingConfig ? (
+                        {canEditSelectedConfig ? (
                           <Select
                             value={selectedConfig.mappings?.[field.key] || '__unmapped__'}
                             onValueChange={(nextValue) =>
@@ -963,7 +985,7 @@ export default function RuleEngineSettingsPanel({
                         Map bill-native categories into the categories used by this ledger and rule set.
                       </p>
                     </div>
-                    {isEditingConfig && (
+                    {canEditSelectedConfig && (
                       <Button variant="outline" size="sm" onClick={() => handleAddCategoryMapping()}>
                         <Plus className="mr-2 h-4 w-4" />
                         Add Mapping
@@ -971,7 +993,7 @@ export default function RuleEngineSettingsPanel({
                     )}
                   </div>
 
-                  {isEditingConfig && unmappedBillCategories.length > 0 && (
+                  {canEditSelectedConfig && unmappedBillCategories.length > 0 && (
                     <div className="mt-4 space-y-2">
                       <p className="text-xs uppercase tracking-wide text-slate-500">
                         Detected In Current Sample
@@ -1005,7 +1027,7 @@ export default function RuleEngineSettingsPanel({
                       >
                         <div className="space-y-2">
                           <Label>Bill category</Label>
-                          {isEditingConfig ? (
+                          {canEditSelectedConfig ? (
                             <Input
                               value={mapping.source}
                               onChange={(event) =>
@@ -1022,7 +1044,7 @@ export default function RuleEngineSettingsPanel({
                         </div>
                         <div className="space-y-2">
                           <Label>Target category</Label>
-                          {isEditingConfig ? (
+                          {canEditSelectedConfig ? (
                             <Select
                               value={mapping.target || '__empty__'}
                               onValueChange={(nextValue) =>
@@ -1049,7 +1071,7 @@ export default function RuleEngineSettingsPanel({
                             </div>
                           )}
                         </div>
-                        {isEditingConfig && (
+                        {canEditSelectedConfig && (
                           <div className="flex items-end">
                             <Button
                               variant="ghost"
@@ -1076,7 +1098,7 @@ export default function RuleEngineSettingsPanel({
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <Label>Income value</Label>
-                      {isEditingConfig ? (
+                      {canEditSelectedConfig ? (
                         <Select
                           value={selectedConfig.transactionTypeMappings?.income || '__empty__'}
                           onValueChange={(nextValue) =>
@@ -1107,7 +1129,7 @@ export default function RuleEngineSettingsPanel({
 
                     <div className="space-y-2">
                       <Label>Expense value</Label>
-                      {isEditingConfig ? (
+                      {canEditSelectedConfig ? (
                         <Select
                           value={selectedConfig.transactionTypeMappings?.expense || '__empty__'}
                           onValueChange={(nextValue) =>

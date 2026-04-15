@@ -50,6 +50,10 @@ function createUnreviewedTransactions(transactions) {
   }));
 }
 
+function getFileExtension(fileName = '') {
+  return fileName.split('.').pop()?.toLowerCase() || '';
+}
+
 export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBack }) {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
@@ -288,6 +292,17 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
       return;
     }
 
+    const extension = getFileExtension(uploadedFile.name);
+    const pdfPresetConfig =
+      extension === 'pdf'
+        ? ruleEngineSettings?.billConfigs?.find((config) => config.importPreset === 'bankOfChinaPdf')
+        : null;
+    const activeBillConfig = pdfPresetConfig || selectedBillConfig;
+
+    if (pdfPresetConfig && selectedBillConfigId !== pdfPresetConfig.id) {
+      setSelectedBillConfigId(pdfPresetConfig.id);
+    }
+
     setFile(uploadedFile);
     setImporting(true);
     setImportProgress(0);
@@ -304,12 +319,16 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
 
       const nextParsedTransactions = await parseImportedFile({
         file: uploadedFile,
-        billConfig: selectedBillConfig,
+        billConfig: activeBillConfig,
         categories,
       });
 
       if (nextParsedTransactions.length === 0) {
         throw new Error('No valid transactions were found in the uploaded file.');
+      }
+
+      if (pdfPresetConfig && extension === 'pdf') {
+        setSuccess(`Loaded ${uploadedFile.name} and switched to ${pdfPresetConfig.name}.`);
       }
 
       setParsedTransactions(nextParsedTransactions);

@@ -98,7 +98,9 @@ export default function ImportSetupView({
           <CardHeader>
             <CardTitle>Upload {selectedBillConfig.name} File</CardTitle>
             <CardDescription>
-              Upload your exported file in the format expected by this saved bill config.
+              {selectedBillConfig.importPreset === 'bankOfChinaPdf'
+                ? 'Upload a supported Bank of China PDF statement. The built-in preset will parse it directly.'
+                : 'Upload your exported file in the format expected by this saved bill config.'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -115,7 +117,7 @@ export default function ImportSetupView({
                 type="file"
                 className="hidden"
                 onChange={onFileUpload}
-                accept=".csv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                accept=".csv,.txt,.xlsx,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               />
               {file && <Badge variant="secondary">{file.name}</Badge>}
             </div>

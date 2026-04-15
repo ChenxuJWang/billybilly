@@ -5,7 +5,7 @@ export async function parseImportedFile({ file, billConfig, categories }) {
     throw new Error('No bill config is selected for this import.');
   }
 
-  const rawText = await readBillFileText(file, billConfig.encoding);
+  const rawText = await readBillFileText(file, billConfig.encoding, billConfig);
   const parsed = parseBillText(rawText, billConfig, categories);
 
   if (parsed.missingMappings.length > 0) {
