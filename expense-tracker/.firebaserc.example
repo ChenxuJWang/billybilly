@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "billybilly-prod",
+    "dev": "billybilly-8f5a5",
+    "prod": "billybilly-prod"
+  }
+}

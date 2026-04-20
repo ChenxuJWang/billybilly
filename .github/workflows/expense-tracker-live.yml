@@ -1,0 +1,71 @@
+name: Expense Tracker Live Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'expense-tracker/**'
+      - '.github/workflows/expense-tracker-*.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: expense-tracker-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy_live:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: expense-tracker
+    env:
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY_PROD }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN_PROD }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID_PROD }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET_PROD }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID_PROD }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID_PROD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: expense-tracker/package-lock.json
+
+      - name: Verify Firebase build variables
+        run: |
+          for key in \
+            VITE_FIREBASE_API_KEY \
+            VITE_FIREBASE_AUTH_DOMAIN \
+            VITE_FIREBASE_PROJECT_ID \
+            VITE_FIREBASE_STORAGE_BUCKET \
+            VITE_FIREBASE_MESSAGING_SENDER_ID \
+            VITE_FIREBASE_APP_ID
+          do
+            if [ -z "${!key}" ]; then
+              echo "Missing required GitHub variable: $key"
+              exit 1
+            fi
+          done
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Deploy live site to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0.10.0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+          projectId: ${{ vars.VITE_FIREBASE_PROJECT_ID_PROD }}
+          entryPoint: ./expense-tracker
+          channelId: live
