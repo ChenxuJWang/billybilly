@@ -19,6 +19,7 @@ import ImportProgressView from '@/features/import/components/ImportProgressView'
 import ImportReviewView from '@/features/import/components/ImportReviewView';
 import ImportResultsView from '@/features/import/components/ImportResultsView';
 import ImportRuleEditorDialog from '@/features/import/components/ImportRuleEditorDialog';
+import ImportRuleSearchOverlay from '@/features/import/components/ImportRuleSearchOverlay';
 import { useTransactionSuggestionScroll } from '@/features/import/hooks/useTransactionSuggestionScroll';
 import { importTransactionsToLedger } from '@/features/import/utils/importTransactions';
 import { parseImportedFile } from '@/features/import/utils/parseImportedTransactions';
@@ -54,6 +55,25 @@ function getFileExtension(fileName = '') {
   return fileName.split('.').pop()?.toLowerCase() || '';
 }
 
+function applyManualCategoryOverrides(transactions, manualCategoryOverrides = {}) {
+  return transactions.map((transaction) => {
+    const override = manualCategoryOverrides[transaction.id];
+
+    if (!override) {
+      return transaction;
+    }
+
+    return {
+      ...transaction,
+      categoryId: override.categoryId,
+      categoryName: override.categoryName,
+      type: override.type,
+      suggestedCategory: override.suggestedCategory,
+      categorizationProcessing: false,
+    };
+  });
+}
+
 export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBack }) {
   const { currentUser } = useAuth();
   const { currentLedger, canEdit } = useLedger();
@@ -85,11 +105,14 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
   const [debugInfo, setDebugInfo] = useState(null);
   const [ruleSuggestionPrompt, setRuleSuggestionPrompt] = useState(null);
   const [ruleEditorState, setRuleEditorState] = useState(null);
+  const [ruleSearchState, setRuleSearchState] = useState(null);
   const [savingRuleEditor, setSavingRuleEditor] = useState(false);
   const [ruleEditorError, setRuleEditorError] = useState('');
+  const [manualCategoryOverrides, setManualCategoryOverrides] = useState({});
 
   const abortControllerRef = useRef(null);
   const displayedTransactionsRef = useRef([]);
+  const manualCategoryOverridesRef = useRef({});
   const { getTransactionRef } = useTransactionSuggestionScroll(
     displayedTransactions,
     categorizationProcessing
@@ -97,6 +120,11 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
 
   const categorizationEngine = getCategorizationEngine(categorizationEngineId);
   const engineLabel = getCategorizationEngineLabel(categorizationEngineId);
+
+  function clearManualCategoryOverrides() {
+    manualCategoryOverridesRef.current = {};
+    setManualCategoryOverrides({});
+  }
 
   function resetImportState({ keepSuccessMessage = false } = {}) {
     setSelectedBillConfigId(
@@ -122,8 +150,10 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     setDebugInfo(null);
     setRuleSuggestionPrompt(null);
     setRuleEditorState(null);
+    setRuleSearchState(null);
     setSavingRuleEditor(false);
     setRuleEditorError('');
+    clearManualCategoryOverrides();
   }
 
   useEffect(() => {
@@ -196,6 +226,10 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
   }, [displayedTransactions]);
 
   useEffect(() => {
+    manualCategoryOverridesRef.current = manualCategoryOverrides;
+  }, [manualCategoryOverrides]);
+
+  useEffect(() => {
     if (!ruleSuggestionPrompt) {
       return undefined;
     }
@@ -254,10 +288,13 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         },
         onPartialResults: (partialData) => {
           setDisplayedTransactions((previousTransactions) =>
-            applySuggestedCategoryUpdates(
-              previousTransactions,
-              partialData.transactions || [],
-              categories
+            applyManualCategoryOverrides(
+              applySuggestedCategoryUpdates(
+                previousTransactions,
+                partialData.transactions || [],
+                categories
+              ),
+              manualCategoryOverridesRef.current
             )
           );
         },
@@ -266,7 +303,9 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         },
       });
 
-      setDisplayedTransactions(result.reviewedTransactions);
+      setDisplayedTransactions(
+        applyManualCategoryOverrides(result.reviewedTransactions, manualCategoryOverridesRef.current)
+      );
       setCategorizationUsage(result.usage || null);
       setReviewingTransactions(true);
     } catch (categorizationError) {
@@ -332,6 +371,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
       }
 
       setParsedTransactions(nextParsedTransactions);
+      clearManualCategoryOverrides();
 
       if (categorizationEnabled) {
         setDisplayedTransactions(createPendingDisplayedTransactions(nextParsedTransactions));
@@ -400,7 +440,9 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     setSuccess('Import cancelled.');
     setRuleSuggestionPrompt(null);
     setRuleEditorState(null);
+    setRuleSearchState(null);
     setRuleEditorError('');
+    clearManualCategoryOverrides();
   }
 
   function handleImportMore() {
@@ -413,7 +455,9 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     setSuccess('');
     setRuleSuggestionPrompt(null);
     setRuleEditorState(null);
+    setRuleSearchState(null);
     setRuleEditorError('');
+    clearManualCategoryOverrides();
   }
 
   const handleCategoryChange = useCallback((transactionId, nextCategoryId) => {
@@ -430,6 +474,27 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         updateReviewedCategory(previousTransactions, transactionId, nextCategoryId, categories)
       );
     });
+
+    const updatedTransaction = currentTransaction
+      ? updateReviewedCategory([currentTransaction], transactionId, nextCategoryId, categories)[0]
+      : null;
+
+    if (updatedTransaction) {
+      setManualCategoryOverrides((previousOverrides) => {
+        const nextOverrides = {
+          ...previousOverrides,
+          [transactionId]: {
+            categoryId: updatedTransaction.categoryId,
+            categoryName: updatedTransaction.categoryName,
+            type: updatedTransaction.type,
+            suggestedCategory: updatedTransaction.categoryName,
+          },
+        };
+
+        manualCategoryOverridesRef.current = nextOverrides;
+        return nextOverrides;
+      });
+    }
 
     if (!currentTransaction || nextCategoryId === 'uncategorized' || !matchedCategory) {
       setRuleSuggestionPrompt(null);
@@ -554,7 +619,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     let ruleDraft;
 
     if (ruleSuggestionPrompt.mode === 'create') {
-      const transaction = displayedTransactions.find(
+      const transaction = displayedTransactionsRef.current.find(
         (candidate) => candidate.id === ruleSuggestionPrompt.transactionId
       );
       const category =
@@ -588,9 +653,49 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
 
     setRuleEditorError('');
     setRuleSuggestionPrompt(null);
+    setRuleSearchState(null);
     setRuleEditorState({
       ...ruleSuggestionPrompt,
       ruleDraft,
+      transactionContext:
+        displayedTransactionsRef.current.find(
+          (candidate) => candidate.id === ruleSuggestionPrompt.transactionId
+        ) || null,
+    });
+  }
+
+  function handleOpenRuleSearch() {
+    if (!ruleSuggestionPrompt || !ruleEngineSettings) {
+      return;
+    }
+
+    setRuleSearchState({
+      ...ruleSuggestionPrompt,
+      transaction:
+        displayedTransactionsRef.current.find(
+          (candidate) => candidate.id === ruleSuggestionPrompt.transactionId
+        ) || null,
+    });
+    setRuleSuggestionPrompt(null);
+  }
+
+  function handleSelectExistingRule(rule) {
+    if (!rule || !ruleSearchState) {
+      return;
+    }
+
+    setRuleEditorError('');
+    setRuleSuggestionPrompt(null);
+    setRuleSearchState(null);
+    setRuleEditorState({
+      mode: 'update',
+      transactionId: ruleSearchState.transactionId,
+      ruleId: rule.id,
+      ruleName: rule.name,
+      categoryId: ruleSearchState.categoryId,
+      categoryName: ruleSearchState.categoryName,
+      ruleDraft: hydrateRule(rule),
+      transactionContext: ruleSearchState.transaction || null,
     });
   }
 
@@ -695,6 +800,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         ruleSuggestionPrompt={ruleSuggestionPrompt}
         onDismissRuleSuggestion={() => setRuleSuggestionPrompt(null)}
         onApplyRuleSuggestion={handleOpenRuleEditor}
+        onEditExistingRuleSuggestion={handleOpenRuleSearch}
         showDebug={debugModeEnabled && categorizationEngine.supportsStreaming}
         debugPanelProps={debugPanelProps}
       />
@@ -736,6 +842,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         open={Boolean(ruleEditorState)}
         mode={ruleEditorState?.mode || 'create'}
         ruleDraft={ruleEditorState?.ruleDraft || null}
+        transactionContext={ruleEditorState?.transactionContext || null}
         categories={categories}
         billConfigs={ruleEngineSettings?.billConfigs || []}
         saving={savingRuleEditor}
@@ -751,6 +858,14 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         onConditionChange={updateRuleEditorCondition}
         onRemoveCondition={removeRuleEditorCondition}
         onSave={handleSaveRuleEditor}
+      />
+      <ImportRuleSearchOverlay
+        open={Boolean(ruleSearchState)}
+        rules={ruleEngineSettings?.rules || []}
+        transaction={ruleSearchState?.transaction || null}
+        targetCategoryName={ruleSearchState?.categoryName || ''}
+        onClose={() => setRuleSearchState(null)}
+        onSelectRule={handleSelectExistingRule}
       />
     </>
   );

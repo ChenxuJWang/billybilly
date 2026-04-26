@@ -1,5 +1,6 @@
 import { Save } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
+import { Badge } from '@/components/ui/badge.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import {
   Dialog,
@@ -12,10 +13,27 @@ import {
 import RuleEditorFields from '@/features/categorization/components/RuleEditorFields';
 import { isRuleReadyToSave } from '@/features/categorization/utils/ruleEditor';
 
+function transactionDetailRows(transaction) {
+  if (!transaction) {
+    return [];
+  }
+
+  return [
+    ['Description', transaction.description],
+    ['Counterparty', transaction.counterparty || transaction.counterpartName],
+    ['Amount', `${transaction.amount} CNY`],
+    ['Date', transaction.date?.toLocaleString?.() || transaction.transactionTime],
+    ['Bill category', transaction.transactionCategory],
+    ['Current category', transaction.categoryName],
+    ['Payment method', transaction.paymentMethod || transaction.source],
+  ].filter(([, value]) => Boolean(value));
+}
+
 export default function ImportRuleEditorDialog({
   open,
   mode,
   ruleDraft,
+  transactionContext,
   categories,
   billConfigs,
   saving,
@@ -50,6 +68,27 @@ export default function ImportRuleEditorDialog({
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
           </Alert>
+        )}
+
+        {transactionContext && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-slate-900">Import transaction context</p>
+              {transactionContext.categoryName && (
+                <Badge variant="outline" className="border-sky-200 bg-white text-sky-700">
+                  Current: {transactionContext.categoryName}
+                </Badge>
+              )}
+            </div>
+            <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
+              {transactionDetailRows(transactionContext).map(([label, value]) => (
+                <div key={label} className="min-w-0">
+                  <span className="text-slate-500">{label}: </span>
+                  <span className="font-medium text-slate-800">{value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         <RuleEditorFields

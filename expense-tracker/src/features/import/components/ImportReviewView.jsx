@@ -120,7 +120,7 @@ function CategorySelectContent({ transaction, categories }) {
   );
 }
 
-function RuleSuggestionPrompt({ prompt, onDismiss, onApply }) {
+function RuleSuggestionPrompt({ prompt, onDismiss, onApply, onEditExistingRule }) {
   const [renderedPrompt, setRenderedPrompt] = useState(prompt);
   const [visible, setVisible] = useState(Boolean(prompt));
 
@@ -178,14 +178,17 @@ function RuleSuggestionPrompt({ prompt, onDismiss, onApply }) {
             <p className="text-sm text-stone-600">
               Category: <span className="font-medium text-stone-900">{renderedPrompt.categoryName}</span>
             </p>
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" onClick={onDismiss}>
-                Not now
-              </Button>
-              <Button onClick={onApply}>
-                {renderedPrompt.mode === 'update' ? 'Edit Rule' : 'Create Rule'}
-              </Button>
-            </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="ghost" onClick={onDismiss}>
+                  Not now
+                </Button>
+                <Button variant="outline" onClick={onEditExistingRule}>
+                  Edit Rule
+                </Button>
+                <Button onClick={onApply}>
+                  {renderedPrompt.mode === 'update' ? 'Edit Matched Rule' : 'Create Rule'}
+                </Button>
+              </div>
           </CardContent>
         </Card>
       </div>
@@ -290,6 +293,7 @@ export default function ImportReviewView({
   ruleSuggestionPrompt,
   onDismissRuleSuggestion,
   onApplyRuleSuggestion,
+  onEditExistingRuleSuggestion,
   showDebug,
   debugPanelProps,
 }) {
@@ -568,6 +572,7 @@ export default function ImportReviewView({
         prompt={ruleSuggestionPrompt}
         onDismiss={onDismissRuleSuggestion}
         onApply={onApplyRuleSuggestion}
+        onEditExistingRule={onEditExistingRuleSuggestion}
       />
     </div>
   );
