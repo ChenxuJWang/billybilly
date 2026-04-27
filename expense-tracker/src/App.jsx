@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { LedgerProvider } from '@/contexts/LedgerContext';
+import { Toaster } from '@/components/ui/sonner.jsx';
 import AppShell from '@/components/AppShell.jsx';
 import GlobalDashboard from '@/components/GlobalDashboard.jsx';
 import LedgerAdmin from '@/components/LedgerAdmin.jsx';
@@ -125,6 +126,7 @@ function App() {
       <AuthProvider>
         <LedgerProvider>
           <AppRoutes />
+          <Toaster richColors closeButton position="top-right" />
         </LedgerProvider>
       </AuthProvider>
     </Router>

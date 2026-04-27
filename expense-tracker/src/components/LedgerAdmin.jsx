@@ -26,10 +26,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import InviteUser from '@/components/InviteUser.jsx';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import { db } from '@/firebase';
 import { ProfileImageGroup } from '@/components/ProfileImage';
 
@@ -147,18 +147,12 @@ export default function LedgerAdmin() {
     fetchMembers();
   }, [currentLedger, currentUser]);
 
-  useEffect(() => {
-    if (!success && !error) {
-      return undefined;
-    }
-
-    const timer = setTimeout(() => {
-      setSuccess('');
-      setError('');
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [error, success]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   async function handleSave() {
     if (!currentLedger || !formData.name.trim()) {
@@ -284,18 +278,6 @@ export default function LedgerAdmin() {
           </div>
         )}
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <Card>

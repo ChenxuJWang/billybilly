@@ -4,10 +4,10 @@ import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
 import { Label } from '@/components/ui/label.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { DollarSign, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -21,6 +21,11 @@ export default function Signup() {
   const { signup } = useAuth();
   const { refreshLedgers } = useLedger();
   const navigate = useNavigate();
+
+  useToastNotifications({
+    error,
+    onErrorShown: setError,
+  });
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -78,12 +83,6 @@ export default function Signup() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {error && (
-              <Alert className="mb-4" variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <Label htmlFor="displayName">Full Name</Label>
@@ -179,4 +178,3 @@ export default function Signup() {
     </div>
   );
 }
-

@@ -69,6 +69,7 @@ import {
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import { db } from '@/firebase';
 import ProfileImage from '@/components/ProfileImage';
 
@@ -125,6 +126,11 @@ function CreateLedgerDialog({ open, onOpenChange }) {
     name: '',
     currency: 'CNY',
     description: '',
+  });
+
+  useToastNotifications({
+    error,
+    onErrorShown: setError,
   });
 
   async function handleCreate() {
@@ -217,7 +223,6 @@ function CreateLedgerDialog({ open, onOpenChange }) {
             />
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
 
         <DialogFooter>

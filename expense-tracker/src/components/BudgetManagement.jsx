@@ -6,7 +6,6 @@ import { Label } from '@/components/ui/label.jsx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
 import { Progress } from '@/components/ui/progress.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { 
   Plus, 
   Edit, 
@@ -31,6 +30,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import { buildRefundAnalyticsTransactions } from '@/features/transactions/utils/refunds';
 
 export default function BudgetManagement() {
@@ -276,6 +276,13 @@ export default function BudgetManagement() {
     }
   }, [formData.startDate, formData.timeSpan]);
 
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
+
   if (loading) {
     return <div className="p-6">Loading budgets...</div>;
   }
@@ -298,18 +305,6 @@ export default function BudgetManagement() {
           </Button>
         )}
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {/* Add/Edit Budget Form */}
       {(showAddForm || editingBudget) && (

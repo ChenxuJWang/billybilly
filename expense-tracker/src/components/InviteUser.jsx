@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input.jsx';
 import { Label } from '@/components/ui/label.jsx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { UserPlus, X, Send, Clock, Check, Trash2, Users, Mail } from 'lucide-react';
 import { 
   collection, 
@@ -21,6 +20,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import ProfileImage from '@/components/ProfileImage.jsx';
 import { createInvitationDocId } from '@/features/invitations/utils.js';
 export default function InviteUser({ ledger, onClose }) {
@@ -217,15 +217,12 @@ export default function InviteUser({ ledger, onClose }) {
     fetchMembers();
   }, [fetchInvitations, fetchMembers]);
 
-  useEffect(() => {
-    if (success || error) {
-      const timer = setTimeout(() => {
-        setSuccess('');
-        setError('');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, error]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -239,18 +236,6 @@ export default function InviteUser({ ledger, onClose }) {
               <X className="h-4 w-4" />
             </Button>
           </div>
-
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {success && (
-            <Alert className="mb-4">
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
 
           {/* Invite New User */}
           <Card className="mb-6">

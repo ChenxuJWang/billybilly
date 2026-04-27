@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input.jsx';
 import { Label } from '@/components/ui/label.jsx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { 
   Plus, 
   Edit, 
@@ -27,6 +26,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import twemoji from 'twemoji';
 
 // Default categories with emojis
@@ -240,16 +240,12 @@ export default function CategoryManagement() {
     fetchCategories();
   }, [fetchCategories]);
 
-  useEffect(() => {
-    // Clear messages after 3 seconds
-    if (success || error) {
-      const timer = setTimeout(() => {
-        setSuccess('');
-        setError('');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, error]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   if (loading) {
     return (
@@ -280,19 +276,6 @@ export default function CategoryManagement() {
           </Button>
         )}
       </div>
-
-      {/* Messages */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {/* Add/Edit Form */}
       {(showAddForm || editingCategory) && (

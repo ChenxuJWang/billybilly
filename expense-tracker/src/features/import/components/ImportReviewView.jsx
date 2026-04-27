@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle, ChevronLeft, ChevronRight, Sparkles, XCircle } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
+import { CheckCircle, ChevronLeft, ChevronRight, Sparkles, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
@@ -295,7 +294,6 @@ export default function ImportReviewView({
   displayedTransactions,
   categories,
   currentLedger,
-  error,
   onCancel,
   onConfirm,
   onCategoryChange,
@@ -455,13 +453,6 @@ export default function ImportReviewView({
           </Button>
         </div>
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
 
       <Card>
         <CardHeader>

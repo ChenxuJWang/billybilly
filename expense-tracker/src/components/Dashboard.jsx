@@ -3,12 +3,10 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   CalendarClock,
-  CircleAlert,
   PiggyBank,
   Wallet,
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, Tooltip, XAxis, YAxis } from 'recharts';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import {
@@ -23,6 +21,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs.jsx';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
 import { useLedgerOverviewData } from '@/hooks/useLedgerOverviewData';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import { useIsMobile } from '@/hooks/use-mobile';
 import InvitationManager from '@/components/InvitationManager';
 import ProfileImage, { ProfileImageGroup } from '@/components/ProfileImage';
@@ -328,6 +327,7 @@ export default function Dashboard() {
     currentLedger,
     currentUser
   );
+  useToastNotifications({ error });
 
   const [balancePeriod, setBalancePeriod] = useState('all');
   const [breakdownPeriod, setBreakdownPeriod] = useState('all');
@@ -576,13 +576,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {error && (
-        <Alert>
-          <CircleAlert className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)] 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_minmax(280px,0.85fr)]">
         <Card className="border-slate-200">

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { 
   Mail, 
   Check, 
@@ -23,6 +22,7 @@ import {
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 
 export default function InvitationManager() {
   const { currentUser } = useAuth();
@@ -124,15 +124,12 @@ export default function InvitationManager() {
     fetchInvitations();
   }, [fetchInvitations]);
 
-  useEffect(() => {
-    if (success || error) {
-      const timer = setTimeout(() => {
-        setSuccess('');
-        setError('');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, error]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   if (invitations.length === 0 && !loading) {
     return null; // Don't show anything if no invitations
@@ -151,18 +148,6 @@ export default function InvitationManager() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {success && (
-            <Alert className="mb-4">
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
-
           <div className="space-y-4">
             {invitations.map((invitation) => (
               <div key={invitation.id} className="border rounded-lg p-4">

@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
-  CheckCircle,
   Copy,
   Download,
   PencilLine,
@@ -32,6 +31,7 @@ import { Textarea } from '@/components/ui/textarea.jsx';
 import { db } from '@/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import RuleEditorFields from '@/features/categorization/components/RuleEditorFields';
 import { isRuleReadyToSave } from '@/features/categorization/utils/ruleEditor';
 import {
@@ -119,19 +119,17 @@ export default function RuleEngineSettingsPanel({
     setIsEditingConfig(false);
   }, [value]);
 
-  useEffect(() => {
-    if (!statusMessage && !errorMessage && !previewError) {
-      return undefined;
-    }
+  useToastNotifications({
+    success: statusMessage,
+    error: errorMessage,
+    onSuccessShown: setStatusMessage,
+    onErrorShown: setErrorMessage,
+  });
 
-    const timer = setTimeout(() => {
-      setStatusMessage('');
-      setErrorMessage('');
-      setPreviewError('');
-    }, 4000);
-
-    return () => clearTimeout(timer);
-  }, [statusMessage, errorMessage, previewError]);
+  useToastNotifications({
+    error: previewError,
+    onErrorShown: setPreviewError,
+  });
 
   const selectedConfig =
     localSettings.billConfigs.find((config) => config.id === localSettings.selectedBillConfigId) ||
@@ -749,27 +747,6 @@ export default function RuleEngineSettingsPanel({
           </Alert>
         )}
       </div>
-
-      {errorMessage && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{errorMessage}</AlertDescription>
-        </Alert>
-      )}
-
-      {statusMessage && (
-        <Alert>
-          <CheckCircle className="h-4 w-4" />
-          <AlertDescription>{statusMessage}</AlertDescription>
-        </Alert>
-      )}
-
-      {previewError && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{previewError}</AlertDescription>
-        </Alert>
-      )}
 
       <Accordion type="multiple" value={openPanels} onValueChange={setOpenPanels} className="rounded-md border">
         <AccordionItem value="yaml" className="px-4">

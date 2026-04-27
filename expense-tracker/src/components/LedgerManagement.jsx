@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
 import { Label } from '@/components/ui/label.jsx';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { 
   Plus, 
   Edit, 
@@ -22,6 +21,7 @@ import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestor
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import InviteUser from './InviteUser';
 import { ProfileImageGroup } from './ProfileImage';
 
@@ -173,15 +173,12 @@ export default function LedgerManagement() {
     }));
   };
 
-  useEffect(() => {
-    if (success || error) {
-      const timer = setTimeout(() => {
-        setSuccess('');
-        setError('');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, error]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   return (
     <div className="p-6 space-y-6">
@@ -195,18 +192,6 @@ export default function LedgerManagement() {
           Create Ledger
         </Button>
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {/* Create/Edit Form */}
       {(showCreateForm || editingLedger) && (

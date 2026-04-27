@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import { Plus, Upload } from 'lucide-react';
 import {
@@ -21,6 +20,7 @@ import {
 import { db } from '@/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import TransactionBatchEdit from '@/features/transactions/components/TransactionBatchEdit';
 import TransactionForm from '@/features/transactions/components/TransactionForm';
 import TransactionList from '@/features/transactions/components/TransactionList';
@@ -293,18 +293,12 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
     }));
   }, [currentUser]);
 
-  useEffect(() => {
-    if (!success && !error) {
-      return undefined;
-    }
-
-    const timer = setTimeout(() => {
-      setSuccess('');
-      setError('');
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [success, error]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -724,18 +718,6 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
           </div>
         )}
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {showAddForm && (
         <div className="fixed inset-0 z-40 bg-slate-950/40 px-4 py-8 backdrop-blur-sm">

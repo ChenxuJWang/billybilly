@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/select.jsx';
 import {
   ArrowLeft,
-  AlertCircle,
   CheckCircle,
   Upload,
 } from 'lucide-react';
@@ -21,8 +20,6 @@ import {
 export default function ImportSetupView({
   file,
   onFileUpload,
-  error,
-  success,
   onBack,
   billConfigs,
   selectedBillConfigId,
@@ -42,20 +39,6 @@ export default function ImportSetupView({
           </Button>
         )}
       </div>
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert>
-          <CheckCircle className="h-4 w-4" />
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      )}
 
       {categorizationEnabled && categorizationStatusMessage && (
         <Alert>

@@ -3,12 +3,12 @@ import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Input } from '@/components/ui/input.jsx';
 import { Label } from '@/components/ui/label.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { User, Palette, Save, RefreshCw } from 'lucide-react';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import { PROFILE_COLORS, getRandomColor, isValidColor } from '../utils/profileImage';
 import ProfileImage from './ProfileImage';
 
@@ -110,15 +110,12 @@ export default function ProfileSettings() {
     loadProfileData();
   }, [loadProfileData]);
 
-  useEffect(() => {
-    if (success || error) {
-      const timer = setTimeout(() => {
-        setSuccess('');
-        setError('');
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [success, error]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   return (
     <Card>
@@ -132,18 +129,6 @@ export default function ProfileSettings() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert>
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         {/* Profile Preview */}
         <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
           <ProfileImage user={previewUser} size="xl" />

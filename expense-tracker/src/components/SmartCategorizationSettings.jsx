@@ -1,12 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, Save } from 'lucide-react';
+import { CheckCircle, Save } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Label } from '@/components/ui/label.jsx';
 import { Switch } from '@/components/ui/switch.jsx';
 import { Input } from '@/components/ui/input.jsx';
 import { Textarea } from '@/components/ui/textarea.jsx';
 import { Button } from '@/components/ui/button.jsx';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import {
   Select,
   SelectContent,
@@ -16,6 +15,7 @@ import {
 } from '@/components/ui/select.jsx';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase';
 import { CATEGORIZATION_ENGINE_OPTIONS } from '@/features/categorization/constants';
@@ -99,19 +99,17 @@ export default function SmartCategorizationSettings({
     fetchSettings();
   }, [currentUser, categories, setSmartCategorizationEnabled]);
 
-  useEffect(() => {
-    if (!statusMessage && !apiKeyError && !systemPromptError) {
-      return undefined;
-    }
+  useToastNotifications({
+    success: statusMessage,
+    error: apiKeyError,
+    onSuccessShown: setStatusMessage,
+    onErrorShown: setApiKeyError,
+  });
 
-    const timer = setTimeout(() => {
-      setStatusMessage('');
-      setApiKeyError('');
-      setSystemPromptError('');
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [statusMessage, apiKeyError, systemPromptError]);
+  useToastNotifications({
+    error: systemPromptError,
+    onErrorShown: setSystemPromptError,
+  });
 
   async function persistSettings(nextSettings) {
     try {
@@ -322,26 +320,6 @@ export default function SmartCategorizationSettings({
           </>
         )}
 
-        {apiKeyError && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{apiKeyError}</AlertDescription>
-          </Alert>
-        )}
-
-        {systemPromptError && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{systemPromptError}</AlertDescription>
-          </Alert>
-        )}
-
-        {statusMessage && (
-          <Alert>
-            <CheckCircle className="h-4 w-4" />
-            <AlertDescription>{statusMessage}</AlertDescription>
-          </Alert>
-        )}
       </CardContent>
     </Card>
   );

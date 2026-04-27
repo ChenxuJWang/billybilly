@@ -1,5 +1,4 @@
 import { Save } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert.jsx';
 import { Badge } from '@/components/ui/badge.jsx';
 import { Button } from '@/components/ui/button.jsx';
 import {
@@ -10,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog.jsx';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import RuleEditorFields from '@/features/categorization/components/RuleEditorFields';
 import { isRuleReadyToSave } from '@/features/categorization/utils/ruleEditor';
 
@@ -45,6 +45,8 @@ export default function ImportRuleEditorDialog({
   onRemoveCondition,
   onSave,
 }) {
+  useToastNotifications({ error });
+
   if (!ruleDraft) {
     return null;
   }
@@ -63,12 +65,6 @@ export default function ImportRuleEditorDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
 
         {transactionContext && (
           <div className="rounded-lg border border-sky-200 bg-sky-50/70 p-4">

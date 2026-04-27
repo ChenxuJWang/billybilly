@@ -3,6 +3,7 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLedger } from '@/contexts/LedgerContext';
+import { useToastNotifications } from '@/hooks/useToastNotifications';
 import { getCategorizationEngine } from '@/features/categorization/engines';
 import { getCategorizationEngineLabel } from '@/features/categorization/constants';
 import {
@@ -204,18 +205,12 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
     fetchCategorizationSettings();
   }, [currentUser, categories]);
 
-  useEffect(() => {
-    if (!success && !error) {
-      return undefined;
-    }
-
-    const timer = setTimeout(() => {
-      setSuccess('');
-      setError('');
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [success, error]);
+  useToastNotifications({
+    success,
+    error,
+    onSuccessShown: setSuccess,
+    onErrorShown: setError,
+  });
 
   useEffect(() => () => {
     abortControllerRef.current?.abort();
@@ -794,7 +789,6 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
         displayedTransactions={displayedTransactions}
         categories={categories}
         currentLedger={currentLedger}
-        error={error}
         onCancel={handleCancelReview}
         onConfirm={handleConfirmImport}
         onCategoryChange={handleCategoryChange}
@@ -819,8 +813,6 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
       <ImportSetupView
         file={file}
         onFileUpload={handleFileUpload}
-        error={error}
-        success={success}
         onBack={onBack}
         billConfigs={ruleEngineSettings?.billConfigs || []}
         selectedBillConfigId={selectedBillConfigId}
