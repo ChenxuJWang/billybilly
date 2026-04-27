@@ -793,6 +793,7 @@ export default function DataImport({ debugModeEnabled, thinkingModeEnabled, onBa
       <ImportReviewView
         displayedTransactions={displayedTransactions}
         categories={categories}
+        currentLedger={currentLedger}
         error={error}
         onCancel={handleCancelReview}
         onConfirm={handleConfirmImport}

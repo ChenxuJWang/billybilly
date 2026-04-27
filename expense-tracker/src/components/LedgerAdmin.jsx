@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Trash2,
   UserPlus,
+  UserRoundCheck,
   Users,
   X,
 } from 'lucide-react';
@@ -40,6 +41,27 @@ const CURRENCY_OPTIONS = [
   { value: 'JPY', label: '¥ Japanese Yen (JPY)' },
 ];
 
+function formatAliasDrafts(aliasGroups = {}) {
+  return Object.fromEntries(
+    Object.entries(aliasGroups).map(([memberId, aliases]) => [
+      memberId,
+      Array.isArray(aliases) ? aliases.join(', ') : '',
+    ])
+  );
+}
+
+function parseAliasDrafts(aliasDrafts = {}) {
+  return Object.fromEntries(
+    Object.entries(aliasDrafts).map(([memberId, value]) => [
+      memberId,
+      String(value || '')
+        .split(/[,\n，、;；]+/)
+        .map((alias) => alias.trim())
+        .filter(Boolean),
+    ])
+  );
+}
+
 export default function LedgerAdmin() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
@@ -48,6 +70,7 @@ export default function LedgerAdmin() {
   const [loading, setLoading] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [aliasDrafts, setAliasDrafts] = useState({});
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [formData, setFormData] = useState({
@@ -66,6 +89,7 @@ export default function LedgerAdmin() {
       currency: currentLedger?.currency || 'CNY',
       description: currentLedger?.description || '',
     });
+    setAliasDrafts(formatAliasDrafts(currentLedger?.internalTransferAliases || {}));
     setIsEditing(false);
   }, [currentLedger]);
 
@@ -159,6 +183,31 @@ export default function LedgerAdmin() {
     } catch (saveError) {
       console.error('Error updating ledger:', saveError);
       setError('Failed to update ledger details.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveAliases() {
+    if (!currentLedger || !isOwner) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      await updateDoc(doc(db, 'ledgers', currentLedger.id), {
+        internalTransferAliases: parseAliasDrafts(aliasDrafts),
+        updatedAt: new Date(),
+      });
+
+      await refreshLedgers();
+      await switchLedger(currentLedger.id);
+      setSuccess('Internal transfer aliases updated.');
+    } catch (saveError) {
+      console.error('Error updating transfer aliases:', saveError);
+      setError('Failed to update internal transfer aliases.');
     } finally {
       setLoading(false);
     }
@@ -408,6 +457,64 @@ export default function LedgerAdmin() {
               <Badge variant={member.role === 'owner' ? 'default' : 'secondary'}>{member.role}</Badge>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <UserRoundCheck className="h-5 w-5" />
+            Internal Transfer Aliases
+          </CardTitle>
+          <CardDescription>
+            Counterparty names that should be treated as ledger-member transfers when categorized as Transfer.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">
+            Use the names exactly as they appear in imported bank or wallet statements. Separate multiple aliases
+            with commas.
+          </div>
+          <div className="space-y-3">
+            {members.map((member) => (
+              <div
+                key={`aliases-${member.uid}`}
+                className="grid gap-2 rounded-2xl border border-stone-200 p-4 lg:grid-cols-[220px_1fr]"
+              >
+                <div>
+                  <p className="font-medium text-stone-900">{member.displayName || member.email}</p>
+                  <p className="text-sm text-stone-500">{member.email || member.uid}</p>
+                </div>
+                <Input
+                  value={aliasDrafts[member.uid] || ''}
+                  onChange={(event) =>
+                    setAliasDrafts((current) => ({
+                      ...current,
+                      [member.uid]: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: Alipay name, bank card name"
+                  disabled={!isOwner || loading}
+                />
+              </div>
+            ))}
+          </div>
+          {isOwner && (
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleSaveAliases} disabled={loading}>
+                <Save className="mr-2 h-4 w-4" />
+                {loading ? 'Saving...' : 'Save Aliases'}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={loading}
+                onClick={() => setAliasDrafts(formatAliasDrafts(currentLedger.internalTransferAliases || {}))}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Reset
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

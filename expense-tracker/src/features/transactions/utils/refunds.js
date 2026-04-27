@@ -1,4 +1,5 @@
 import { normalizeTransactionDate } from '@/features/transactions/utils/transactionManagement';
+import { buildInternalTransferAnalyticsTransactions } from '@/features/transactions/utils/internalTransfers';
 
 const REFUND_CATEGORY_NAME = 'refund';
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -230,7 +231,7 @@ export function filterRefundCandidatesByQuery(candidates = [], query = '') {
   });
 }
 
-export function buildRefundAnalyticsTransactions(transactions = []) {
+export function buildRefundAnalyticsTransactions(transactions = [], ledger = null, categories = []) {
   const transactionMap = new Map(transactions.map((transaction) => [transaction.id, transaction]));
   const consumedIds = new Set();
   const analyticsTransactions = [];
@@ -283,6 +284,5 @@ export function buildRefundAnalyticsTransactions(transactions = []) {
     analyticsTransactions.push(transaction);
   });
 
-  return analyticsTransactions;
+  return buildInternalTransferAnalyticsTransactions(analyticsTransactions, ledger, categories);
 }
-

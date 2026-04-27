@@ -30,10 +30,12 @@ export function createDefaultCategories() {
     { name: 'Entertainment', type: 'expense' },
     { name: 'Bills & Utilities', type: 'expense' },
     { name: 'Healthcare', type: 'expense' },
+    { name: 'Transfer', type: 'expense' },
     { name: 'Salary', type: 'income' },
     { name: 'Freelance', type: 'income' },
     { name: 'Investment', type: 'income' },
     { name: 'Refund', type: 'income' },
+    { name: 'Transfer', type: 'income' },
   ];
 }
 

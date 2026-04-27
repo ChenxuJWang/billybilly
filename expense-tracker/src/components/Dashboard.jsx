@@ -337,8 +337,8 @@ export default function Dashboard() {
 
   const now = useMemo(() => new Date(), []);
   const analyticsTransactions = useMemo(
-    () => buildRefundAnalyticsTransactions(transactions),
-    [transactions]
+    () => buildRefundAnalyticsTransactions(transactions, currentLedger, categories),
+    [categories, currentLedger, transactions]
   );
 
   const monthlyTransactions = useMemo(

@@ -40,7 +40,8 @@ const DEFAULT_EXPENSE_CATEGORIES = [
   { name: 'Education', emoji: '📚', type: 'expense' },
   { name: 'Travel', emoji: '✈️', type: 'expense' },
   { name: 'Fitness', emoji: '💪', type: 'expense' },
-  { name: 'Personal Care', emoji: '💄', type: 'expense' }
+  { name: 'Personal Care', emoji: '💄', type: 'expense' },
+  { name: 'Transfer', emoji: '🔁', type: 'expense' }
 ];
 
 const DEFAULT_INCOME_CATEGORIES = [
@@ -49,7 +50,8 @@ const DEFAULT_INCOME_CATEGORIES = [
   { name: 'Investment', emoji: '📈', type: 'income' },
   { name: 'Business', emoji: '🏢', type: 'income' },
   { name: 'Rental', emoji: '🏠', type: 'income' },
-  { name: 'Gift', emoji: '🎁', type: 'income' }
+  { name: 'Gift', emoji: '🎁', type: 'income' },
+  { name: 'Transfer', emoji: '🔁', type: 'income' }
 ];
 
 // Popular emojis for categories

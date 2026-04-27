@@ -160,7 +160,7 @@ export default function BudgetManagement() {
 
   // Calculate budget spending
   const calculateBudgetSpending = (budget) => {
-    const budgetTransactions = buildRefundAnalyticsTransactions(transactions).filter(transaction => {
+    const budgetTransactions = buildRefundAnalyticsTransactions(transactions, currentLedger, categories).filter(transaction => {
       const transactionDate = transaction.date;
       return transactionDate >= budget.startDate && 
              transactionDate <= budget.endDate &&

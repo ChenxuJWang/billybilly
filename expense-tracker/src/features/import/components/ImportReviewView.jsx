@@ -22,6 +22,7 @@ import {
 } from '@/features/import/utils/reviewTransactions';
 import { resolveCategoryForTransaction } from '@/features/categorization/utils/categoryResolution';
 import { IGNORE_CATEGORY_NAME } from '@/features/categorization/ruleEngine';
+import { isInternalTransferTransaction } from '@/features/transactions/utils/internalTransfers';
 
 function normalizeText(value) {
   return String(value || '')
@@ -210,6 +211,7 @@ function getTransactionSelectValue(transaction, categories) {
 const TransactionReviewRow = memo(function TransactionReviewRow({
   transaction,
   categories,
+  currentLedger,
   registerRowElement,
   onCategoryChange,
 }) {
@@ -218,6 +220,7 @@ const TransactionReviewRow = memo(function TransactionReviewRow({
   );
   const originalCategoryLabel = getOriginalCategoryLabel(transaction, categories);
   const ignored = isIgnoredTransaction(transaction);
+  const isInternalTransfer = isInternalTransferTransaction(transaction, currentLedger, categories);
 
   useEffect(() => {
     setSelectedValue(getTransactionSelectValue(transaction, categories));
@@ -243,6 +246,11 @@ const TransactionReviewRow = memo(function TransactionReviewRow({
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <TransactionTypeBadge transaction={transaction} />
           {ignored && <Badge variant="outline" className="border-slate-300 bg-slate-200 text-slate-700">ignored</Badge>}
+          {isInternalTransfer && (
+            <Badge variant="outline" className="border-slate-300 bg-slate-100 text-slate-700">
+              Internal Transfer
+            </Badge>
+          )}
           {transaction.matchedRuleName && (
             <span className={`text-sm ${ignored ? 'text-slate-500' : 'text-gray-500'}`}>
               Matched rule: <span className="font-medium">{transaction.matchedRuleName}</span>
@@ -286,6 +294,7 @@ const TransactionReviewRow = memo(function TransactionReviewRow({
 export default function ImportReviewView({
   displayedTransactions,
   categories,
+  currentLedger,
   error,
   onCancel,
   onConfirm,
@@ -540,6 +549,7 @@ export default function ImportReviewView({
                     key={transaction.id}
                     transaction={transaction}
                     categories={categories}
+                    currentLedger={currentLedger}
                     registerRowElement={registerRowElement}
                     onCategoryChange={onCategoryChange}
                   />

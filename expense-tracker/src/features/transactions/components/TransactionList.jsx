@@ -15,6 +15,7 @@ import {
   isLinkedRefundTransaction,
   isRefundTransaction,
 } from '@/features/transactions/utils/refunds';
+import { isInternalTransferTransaction } from '@/features/transactions/utils/internalTransfers';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -235,6 +236,7 @@ export default function TransactionList({
     const relatedRefundTransaction = getRelatedRefundTransaction(transaction, transactions);
     const isRefundIncome = isLinkedRefund && transaction.refundRole === 'refund';
     const isRefundedExpense = isLinkedRefund && transaction.refundRole === 'original';
+    const isInternalTransfer = isInternalTransferTransaction(transaction, currentLedger, categories);
     const canManageRefundLink = isRefundTransaction(transaction, categories);
     const refundAmount = Number(relatedRefundTransaction?.amount) || 0;
     const expenseAmount = Number(transaction.amount) || 0;
@@ -245,7 +247,7 @@ export default function TransactionList({
       <div
         key={transaction.id}
         className={`group flex items-center justify-between rounded-md border p-4 shadow-sm ${
-          isRefundIncome ? 'bg-slate-50 text-slate-500' : ''
+          isRefundIncome || isInternalTransfer ? 'bg-slate-50 text-slate-500' : ''
         }`}
       >
         <div className="flex flex-1 items-center space-x-3">
@@ -260,6 +262,8 @@ export default function TransactionList({
                   className={`font-semibold ${
                     isRefundIncome
                       ? 'text-slate-500 line-through'
+                      : isInternalTransfer
+                        ? 'text-slate-500'
                       : transaction.type === 'income'
                         ? 'text-green-600'
                         : 'text-red-600'
@@ -273,6 +277,11 @@ export default function TransactionList({
                 {isRefundIncome && relatedRefundTransaction && (
                   <p className="text-sm text-slate-500">
                     Refund for: {relatedRefundTransaction.description || 'linked expense'}
+                  </p>
+                )}
+                {isInternalTransfer && (
+                  <p className="text-sm font-medium text-slate-500">
+                    Internal Transfer
                   </p>
                 )}
                 {transaction.type === 'expense' && transaction.splitType !== 'none' && (
@@ -297,6 +306,8 @@ export default function TransactionList({
                   className={`text-lg font-semibold ${
                     isRefundIncome
                       ? 'text-slate-500 line-through'
+                      : isInternalTransfer
+                        ? 'text-slate-500'
                       : transaction.type === 'income'
                         ? 'text-green-600'
                         : 'text-red-600'
@@ -314,6 +325,9 @@ export default function TransactionList({
                       ? 'Refunded in full'
                       : `Refunded ${formatCurrency(Math.abs(refundAmount), currentLedger?.currency)}`}
                   </p>
+                )}
+                {isInternalTransfer && (
+                  <p className="mt-1 text-xs font-medium text-slate-500">Internal Transfer</p>
                 )}
               </div>
             </div>

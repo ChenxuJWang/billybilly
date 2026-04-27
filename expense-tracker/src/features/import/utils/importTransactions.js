@@ -67,6 +67,8 @@ export async function importTransactionsToLedger({
         categoryId: transaction.categoryId,
         categoryName: transaction.categoryName || '',
         paymentMethod: transaction.paymentMethod || 'Unknown',
+        counterparty: transaction.counterparty || transaction.counterpartName || '',
+        counterpartName: transaction.counterpartName || transaction.counterparty || '',
         includeInBudget: true,
         platform: transaction.platform,
         originalData: transaction.originalData || {},
