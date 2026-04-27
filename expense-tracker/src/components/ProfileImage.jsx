@@ -29,7 +29,7 @@ export default function ProfileImage({
   const displayName = user?.displayName || user?.email || 'Unknown User';
   
   return (
-    <div
+    <span
       className={`
         ${sizeClass}
         rounded-full
@@ -48,7 +48,7 @@ export default function ProfileImage({
       title={showTooltip ? displayName : undefined}
     >
       {profileData.initial}
-    </div>
+    </span>
   );
 }
 
@@ -67,9 +67,9 @@ export function ProfileImageWithName({
   const email = user?.email;
   
   return (
-    <div className={`flex items-center space-x-2 ${className}`}>
+    <span className={`inline-flex items-center space-x-2 ${className}`}>
       <ProfileImage user={user} size={size} showTooltip={false} />
-      <div className="flex flex-col">
+      <span className="flex flex-col">
         <span className={`font-medium ${nameClassName}`}>
           {displayName}
         </span>
@@ -78,8 +78,8 @@ export function ProfileImageWithName({
             {email}
           </span>
         )}
-      </div>
-    </div>
+      </span>
+    </span>
   );
 }
 
@@ -132,4 +132,3 @@ export function ProfileImageGroup({
     </div>
   );
 }
-
