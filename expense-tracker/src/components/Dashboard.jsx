@@ -27,6 +27,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import InvitationManager from '@/components/InvitationManager';
 import ProfileImage, { ProfileImageGroup } from '@/components/ProfileImage';
 import { formatCurrency } from '@/utils/currency';
+import { buildRefundAnalyticsTransactions } from '@/features/transactions/utils/refunds';
 
 const CATEGORY_COLORS = [
   '#1d4ed8',
@@ -109,10 +110,13 @@ function buildCategoryBreakdown(transactions, categories) {
     }
 
     const category = categoriesById.get(transaction.categoryId);
-    const type = category?.type === 'income' || category?.type === 'expense'
-      ? category.type
-      : transaction.type || 'expense';
-    const key = category?.id || `${type}-uncategorized`;
+    const type = transaction.refundNetTransactionIds
+      ? transaction.type || 'expense'
+      : category?.type === 'income' || category?.type === 'expense'
+        ? category.type
+        : transaction.type || 'expense';
+    const categoryMatchesType = category?.type === type;
+    const key = categoryMatchesType ? category.id : `${type}-uncategorized`;
     const existingEntry = totalsByType[type].get(key);
 
     if (existingEntry) {
@@ -122,7 +126,7 @@ function buildCategoryBreakdown(transactions, categories) {
 
     totalsByType[type].set(key, {
       key,
-      name: category?.name || 'Uncategorized',
+      name: categoryMatchesType ? category.name : 'Uncategorized',
       type,
       value: amount,
     });
@@ -332,14 +336,25 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
 
   const now = useMemo(() => new Date(), []);
+  const analyticsTransactions = useMemo(
+    () => buildRefundAnalyticsTransactions(transactions),
+    [transactions]
+  );
 
   const monthlyTransactions = useMemo(
     () => transactions.filter((transaction) => isTransactionInMonth(transaction.date, now)),
     [transactions, now]
   );
+  const monthlyAnalyticsTransactions = useMemo(
+    () => analyticsTransactions.filter((transaction) => isTransactionInMonth(transaction.date, now)),
+    [analyticsTransactions, now]
+  );
 
-  const selectedBalanceTransactions = balancePeriod === 'month' ? monthlyTransactions : transactions;
-  const selectedBreakdownTransactions = breakdownPeriod === 'month' ? monthlyTransactions : transactions;
+  const selectedBalanceTransactions =
+    balancePeriod === 'month' ? monthlyAnalyticsTransactions : analyticsTransactions;
+  const selectedBreakdownTransactions =
+    breakdownPeriod === 'month' ? monthlyAnalyticsTransactions : analyticsTransactions;
+  const selectedBalanceVisibleCount = balancePeriod === 'month' ? monthlyTransactions.length : transactions.length;
 
   const balanceSummary = useMemo(() => {
     return selectedBalanceTransactions.reduce(
@@ -415,7 +430,7 @@ export default function Dashboard() {
   const prioritizedBudgets = useMemo(() => {
     return budgets
       .map((budget) => {
-        const budgetTransactions = transactions.filter((transaction) => {
+        const budgetTransactions = analyticsTransactions.filter((transaction) => {
           return (
             transaction.includeInBudget === true &&
             transaction.type === 'expense' &&
@@ -462,7 +477,7 @@ export default function Dashboard() {
         return right.endDate.getTime() - left.endDate.getTime();
       })
       .slice(0, 4);
-  }, [budgets, transactions, now]);
+  }, [budgets, analyticsTransactions, now]);
 
   const displayedTransactions = useMemo(() => {
     if (transactionMode === 'top') {
@@ -604,7 +619,7 @@ export default function Dashboard() {
                 {formatCurrency(balanceSummary.balance, currentLedger.currency)}
               </p>
               <p className="text-sm text-slate-500">
-                {selectedBalanceTransactions.length} transactions included in this view.
+                {selectedBalanceVisibleCount} transactions visible in this view.
               </p>
             </div>
 

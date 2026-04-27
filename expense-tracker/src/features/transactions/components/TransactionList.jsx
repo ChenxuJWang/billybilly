@@ -2,14 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button.jsx';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.jsx';
 import { Checkbox } from '@/components/ui/checkbox.jsx';
-import { ChevronLeft, ChevronRight, Edit, Pin, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Link2, Pin, Trash2, Unlink } from 'lucide-react';
 import { ProfileImageWithName } from '@/components/ProfileImage';
-import { formatCurrencyWithSign } from '@/utils/currency';
+import { formatCurrency, formatCurrencyWithSign } from '@/utils/currency';
 import {
   ensureArray,
   groupTransactionsByMonth,
   normalizeTransactionDate,
 } from '@/features/transactions/utils/transactionManagement';
+import {
+  getRelatedRefundTransaction,
+  isLinkedRefundTransaction,
+  isRefundTransaction,
+} from '@/features/transactions/utils/refunds';
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -181,6 +186,8 @@ export default function TransactionList({
   onShowBatchEdit,
   onBatchDelete,
   onTogglePin,
+  onOpenRefundLink,
+  onUnlinkRefund,
   onEdit,
   onDelete,
 }) {
@@ -224,11 +231,22 @@ export default function TransactionList({
     const splitMembers = members.filter((member) =>
       ensureArray(transaction.splitWith).includes(member.uid)
     );
+    const isLinkedRefund = isLinkedRefundTransaction(transaction);
+    const relatedRefundTransaction = getRelatedRefundTransaction(transaction, transactions);
+    const isRefundIncome = isLinkedRefund && transaction.refundRole === 'refund';
+    const isRefundedExpense = isLinkedRefund && transaction.refundRole === 'original';
+    const canManageRefundLink = isRefundTransaction(transaction, categories);
+    const refundAmount = Number(relatedRefundTransaction?.amount) || 0;
+    const expenseAmount = Number(transaction.amount) || 0;
+    const isFullyRefunded =
+      isRefundedExpense && Math.abs(Math.abs(expenseAmount) - Math.abs(refundAmount)) <= 0.01;
 
     return (
       <div
         key={transaction.id}
-        className="group flex items-center justify-between rounded-md border p-4 shadow-sm"
+        className={`group flex items-center justify-between rounded-md border p-4 shadow-sm ${
+          isRefundIncome ? 'bg-slate-50 text-slate-500' : ''
+        }`}
       >
         <div className="flex flex-1 items-center space-x-3">
           <Checkbox
@@ -240,7 +258,11 @@ export default function TransactionList({
               <div>
                 <p
                   className={`font-semibold ${
-                    transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
+                    isRefundIncome
+                      ? 'text-slate-500 line-through'
+                      : transaction.type === 'income'
+                        ? 'text-green-600'
+                        : 'text-red-600'
                   }`}
                 >
                   {transaction.description}
@@ -248,6 +270,11 @@ export default function TransactionList({
                 <p className="text-sm text-gray-500">
                   {category?.name} | {new Date(transaction.date).toLocaleDateString()}
                 </p>
+                {isRefundIncome && relatedRefundTransaction && (
+                  <p className="text-sm text-slate-500">
+                    Refund for: {relatedRefundTransaction.description || 'linked expense'}
+                  </p>
+                )}
                 {transaction.type === 'expense' && transaction.splitType !== 'none' && (
                   <p className="text-sm text-gray-500">
                     Paid by: <ProfileImageWithName user={payer} />
@@ -268,7 +295,11 @@ export default function TransactionList({
               <div className="text-right">
                 <p
                   className={`text-lg font-semibold ${
-                    transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
+                    isRefundIncome
+                      ? 'text-slate-500 line-through'
+                      : transaction.type === 'income'
+                        ? 'text-green-600'
+                        : 'text-red-600'
                   }`}
                 >
                   {formatCurrencyWithSign(
@@ -277,6 +308,13 @@ export default function TransactionList({
                     transaction.type === 'income'
                   )}
                 </p>
+                {isRefundedExpense && relatedRefundTransaction && (
+                  <p className="mt-1 text-xs font-medium text-slate-500">
+                    {isFullyRefunded
+                      ? 'Refunded in full'
+                      : `Refunded ${formatCurrency(Math.abs(refundAmount), currentLedger?.currency)}`}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -293,9 +331,25 @@ export default function TransactionList({
           </Button>
           <Button variant="outline" size="sm" onClick={() => onEdit(transaction)}>
             <Edit className="h-4 w-4" />
+            <span className="sr-only">Edit transaction</span>
           </Button>
+          {canManageRefundLink && (
+            <Button variant="outline" size="sm" onClick={() => onOpenRefundLink(transaction)}>
+              <Link2 className="h-4 w-4" />
+              <span className="sr-only">
+                {isRefundIncome ? 'Change refund link' : 'Link refund'}
+              </span>
+            </Button>
+          )}
+          {isLinkedRefund && (
+            <Button variant="outline" size="sm" onClick={() => onUnlinkRefund(transaction)}>
+              <Unlink className="h-4 w-4" />
+              <span className="sr-only">Unlink refund</span>
+            </Button>
+          )}
           <Button variant="destructive" size="sm" onClick={() => onDelete(transaction.id)}>
             <Trash2 className="h-4 w-4" />
+            <span className="sr-only">Delete transaction</span>
           </Button>
         </div>
       </div>

@@ -13,7 +13,14 @@ import {
 import { Textarea } from '@/components/ui/textarea.jsx';
 import { ProfileImageWithName } from '@/components/ProfileImage';
 import { formatCurrency } from '@/utils/currency';
+import { Link2, Unlink } from 'lucide-react';
 import { buildSplitPreview, ensureArray } from '@/features/transactions/utils/transactionManagement';
+import { isLinkedRefundTransaction, isRefundTransaction } from '@/features/transactions/utils/refunds';
+
+function formatRelatedDate(transaction) {
+  const date = transaction?.date instanceof Date ? transaction.date : new Date(transaction?.date);
+  return date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : 'Unknown date';
+}
 
 export default function TransactionForm({
   formData,
@@ -27,8 +34,16 @@ export default function TransactionForm({
   isMultiMemberLedger,
   onSubmit,
   onCancel,
+  onOpenRefundLink,
+  onUnlinkRefund,
+  relatedRefundTransaction,
 }) {
   const splitPreview = buildSplitPreview(formData, members);
+  const canLinkRefund = editingTransaction && isRefundTransaction(formData, categories);
+  const isLinkedRefund = isLinkedRefundTransaction(editingTransaction);
+  const relatedRefundCategory = categories.find(
+    (category) => category.id === relatedRefundTransaction?.categoryId
+  );
 
   const handleSplitModeChange = (mode) => {
     setSplitMode(mode);
@@ -175,6 +190,51 @@ export default function TransactionForm({
               />
               <Label htmlFor="includeInBudget">Include in Budget</Label>
             </div>
+            {(canLinkRefund || isLinkedRefund) && (
+              <div className="md:col-span-2 rounded-md border border-sky-100 bg-sky-50/70 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {isLinkedRefund ? 'Refund linked' : 'Refund link'}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {canLinkRefund
+                        ? 'Link this refund income to the original expense so analytics use the net amount.'
+                        : 'This transaction is paired with a refund, so analytics use the net amount.'}
+                    </p>
+                    {isLinkedRefund && relatedRefundTransaction && (
+                      <div className="mt-3 rounded-md border border-sky-100 bg-white/80 px-3 py-2 text-sm">
+                        <p className="font-medium text-slate-900">
+                          {relatedRefundTransaction.description || 'Linked transaction'}
+                        </p>
+                        <p className="mt-1 text-slate-600">
+                          {relatedRefundCategory?.name || relatedRefundTransaction.categoryName || 'Uncategorized'} •{' '}
+                          {formatRelatedDate(relatedRefundTransaction)} •{' '}
+                          {formatCurrency(
+                            Math.abs(Number(relatedRefundTransaction.amount) || 0),
+                            currentLedger?.currency
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {isLinkedRefund && (
+                      <Button type="button" variant="outline" onClick={onUnlinkRefund}>
+                        <Unlink className="mr-2 h-4 w-4" />
+                        Unlink
+                      </Button>
+                    )}
+                    {canLinkRefund && (
+                      <Button type="button" onClick={onOpenRefundLink}>
+                        <Link2 className="mr-2 h-4 w-4" />
+                        {isLinkedRefund ? 'Change Link' : 'Link Refund'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {isMultiMemberLedger && formData.type === 'expense' && (

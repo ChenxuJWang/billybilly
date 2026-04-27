@@ -33,6 +33,7 @@ export function createDefaultCategories() {
     { name: 'Salary', type: 'income' },
     { name: 'Freelance', type: 'income' },
     { name: 'Investment', type: 'income' },
+    { name: 'Refund', type: 'income' },
   ];
 }
 

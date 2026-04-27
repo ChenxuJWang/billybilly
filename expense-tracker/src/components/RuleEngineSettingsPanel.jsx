@@ -305,7 +305,7 @@ export default function RuleEngineSettingsPanel({
   }
 
   function inferLedgerCategoryType(categoryName) {
-    return /income|salary|freelance|investment|business|rental|gift/i.test(categoryName)
+    return /income|salary|freelance|investment|business|rental|gift|refund/i.test(categoryName)
       ? 'income'
       : 'expense';
   }

@@ -13,6 +13,7 @@ import {
   orderBy,
   query,
   Timestamp,
+  deleteField,
   updateDoc,
   where,
   writeBatch,
@@ -23,6 +24,7 @@ import { useLedger } from '@/contexts/LedgerContext';
 import TransactionBatchEdit from '@/features/transactions/components/TransactionBatchEdit';
 import TransactionForm from '@/features/transactions/components/TransactionForm';
 import TransactionList from '@/features/transactions/components/TransactionList';
+import RefundLinkOverlay from '@/features/transactions/components/RefundLinkOverlay';
 import DataImport from '@/components/DataImport';
 import {
   createDefaultBatchEditState,
@@ -31,6 +33,34 @@ import {
   getSplitMode,
   normalizeTransactionForEdit,
 } from '@/features/transactions/utils/transactionManagement';
+import {
+  getRelatedRefundTransaction,
+  isLinkedRefundTransaction,
+  isRefundCategory,
+  isRefundTransaction,
+} from '@/features/transactions/utils/refunds';
+
+function createRefundFieldDeletes() {
+  return {
+    specialTransactionType: deleteField(),
+    refundRole: deleteField(),
+    refundLinkId: deleteField(),
+    refundLinkedTransactionId: deleteField(),
+    refundLinkedAt: deleteField(),
+    refundLinkedBy: deleteField(),
+  };
+}
+
+function omitRefundFields(transaction) {
+  const nextTransaction = { ...transaction };
+  delete nextTransaction.specialTransactionType;
+  delete nextTransaction.refundRole;
+  delete nextTransaction.refundLinkId;
+  delete nextTransaction.refundLinkedTransactionId;
+  delete nextTransaction.refundLinkedAt;
+  delete nextTransaction.refundLinkedBy;
+  return nextTransaction;
+}
 
 export default function TransactionManagement({ debugModeEnabled = false, thinkingModeEnabled = false }) {
   const { currentUser } = useAuth();
@@ -49,6 +79,8 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [splitMode, setSplitMode] = useState('none');
+  const [refundLinkOverlayOpen, setRefundLinkOverlayOpen] = useState(false);
+  const [refundLinkTransaction, setRefundLinkTransaction] = useState(null);
 
   const [formData, setFormData] = useState(createDefaultTransactionForm(currentUser?.uid || ''));
   const [batchEditData, setBatchEditData] = useState(createDefaultBatchEditState());
@@ -289,6 +321,7 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
         ...formData,
         amount: Number.parseFloat(formData.amount),
         date: Timestamp.fromDate(new Date(formData.date)),
+        categoryName: categories.find((category) => category.id === formData.categoryId)?.name || '',
         pinned: editingTransaction?.pinned || false,
         createdAt: Timestamp.now(),
         userId: currentUser.uid,
@@ -299,10 +332,32 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
       };
 
       if (editingTransaction) {
-        await updateDoc(
-          doc(db, 'ledgers', currentLedger.id, 'transactions', editingTransaction.id),
-          transactionData
-        );
+        const transactionRef = doc(db, 'ledgers', currentLedger.id, 'transactions', editingTransaction.id);
+        const invalidRefundLink =
+          isLinkedRefundTransaction(editingTransaction) &&
+          ((editingTransaction.refundRole === 'refund' &&
+            !isRefundTransaction(transactionData, categories)) ||
+            (editingTransaction.refundRole === 'original' && transactionData.type !== 'expense'));
+
+        if (invalidRefundLink) {
+          const batch = writeBatch(db);
+
+          batch.update(transactionRef, {
+            ...transactionData,
+            ...createRefundFieldDeletes(),
+          });
+
+          if (editingTransaction.refundLinkedTransactionId) {
+            batch.update(
+              doc(db, 'ledgers', currentLedger.id, 'transactions', editingTransaction.refundLinkedTransactionId),
+              createRefundFieldDeletes()
+            );
+          }
+
+          await batch.commit();
+        } else {
+          await updateDoc(transactionRef, transactionData);
+        }
         setSuccess('Transaction updated successfully');
       } else {
         await addDoc(collection(db, 'ledgers', currentLedger.id, 'transactions'), transactionData);
@@ -325,7 +380,20 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
     }
 
     try {
-      await deleteDoc(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId));
+      const transaction = transactions.find((candidate) => candidate.id === transactionId);
+
+      if (isLinkedRefundTransaction(transaction)) {
+        const batch = writeBatch(db);
+
+        batch.delete(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId));
+        batch.update(
+          doc(db, 'ledgers', currentLedger.id, 'transactions', transaction.refundLinkedTransactionId),
+          createRefundFieldDeletes()
+        );
+        await batch.commit();
+      } else {
+        await deleteDoc(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId));
+      }
       setSuccess('Transaction deleted successfully');
       await fetchTransactions();
     } catch (deleteError) {
@@ -344,13 +412,25 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
     }
 
     try {
+      const selectedTransactionSet = new Set(selectedTransactions);
       const batchSize = 500;
 
       for (let index = 0; index < selectedTransactions.length; index += batchSize) {
         const batch = writeBatch(db);
 
         selectedTransactions.slice(index, index + batchSize).forEach((transactionId) => {
+          const transaction = transactions.find((candidate) => candidate.id === transactionId);
           batch.delete(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId));
+
+          if (
+            isLinkedRefundTransaction(transaction) &&
+            !selectedTransactionSet.has(transaction.refundLinkedTransactionId)
+          ) {
+            batch.update(
+              doc(db, 'ledgers', currentLedger.id, 'transactions', transaction.refundLinkedTransactionId),
+              createRefundFieldDeletes()
+            );
+          }
         });
 
         await batch.commit();
@@ -375,6 +455,7 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
 
       if (batchEditData.categoryId) {
         updates.categoryId = batchEditData.categoryId;
+        updates.categoryName = categories.find((category) => category.id === batchEditData.categoryId)?.name || '';
       }
 
       if (batchEditData.includeInBudget !== null) {
@@ -382,12 +463,32 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
       }
 
       const batchSize = 500;
+      const nextCategory = updates.categoryId
+        ? categories.find((category) => category.id === updates.categoryId)
+        : null;
+      const shouldUnlinkRefunds = updates.categoryId && !isRefundCategory(nextCategory);
 
       for (let index = 0; index < selectedTransactions.length; index += batchSize) {
         const batch = writeBatch(db);
 
         selectedTransactions.slice(index, index + batchSize).forEach((transactionId) => {
-          batch.update(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId), updates);
+          const transaction = transactions.find((candidate) => candidate.id === transactionId);
+          const shouldClearLink =
+            shouldUnlinkRefunds &&
+            isLinkedRefundTransaction(transaction) &&
+            transaction.refundRole === 'refund';
+
+          batch.update(doc(db, 'ledgers', currentLedger.id, 'transactions', transactionId), {
+            ...updates,
+            ...(shouldClearLink ? createRefundFieldDeletes() : {}),
+          });
+
+          if (shouldClearLink) {
+            batch.update(
+              doc(db, 'ledgers', currentLedger.id, 'transactions', transaction.refundLinkedTransactionId),
+              createRefundFieldDeletes()
+            );
+          }
         });
 
         await batch.commit();
@@ -407,6 +508,8 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
   const handleEdit = (transaction) => {
     const normalizedTransaction = normalizeTransactionForEdit(transaction);
     setEditingTransaction(transaction);
+    setRefundLinkOverlayOpen(false);
+    setRefundLinkTransaction(null);
     setShowAddForm(true);
     setFormData(normalizedTransaction);
     setSplitMode(getSplitMode(normalizedTransaction.splitWith, members, normalizedTransaction.paidBy));
@@ -414,12 +517,25 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
 
   const handleOpenAddForm = () => {
     resetForm();
+    setRefundLinkOverlayOpen(false);
+    setRefundLinkTransaction(null);
     setShowAddForm(true);
   };
 
   const handleCancelForm = () => {
     setShowAddForm(false);
+    setRefundLinkOverlayOpen(false);
+    setRefundLinkTransaction(null);
     resetForm();
+  };
+
+  const handleOpenRefundLink = (transaction = editingTransaction) => {
+    if (!transaction) {
+      return;
+    }
+
+    setRefundLinkTransaction(transaction);
+    setRefundLinkOverlayOpen(true);
   };
 
   const handleTogglePin = async (transaction) => {
@@ -439,6 +555,119 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
     }
   };
 
+  const handleLinkRefund = async (expenseTransaction) => {
+    const activeRefundTransaction = refundLinkTransaction || editingTransaction;
+
+    if (!canEdit() || !activeRefundTransaction || activeRefundTransaction.type !== 'income') {
+      return;
+    }
+
+    try {
+      const batch = writeBatch(db);
+      const linkedAt = Timestamp.now();
+      const refundLinkId = [activeRefundTransaction.id, expenseTransaction.id].sort().join('__');
+      const refundRef = doc(db, 'ledgers', currentLedger.id, 'transactions', activeRefundTransaction.id);
+      const expenseRef = doc(db, 'ledgers', currentLedger.id, 'transactions', expenseTransaction.id);
+
+      if (
+        activeRefundTransaction.refundLinkedTransactionId &&
+        activeRefundTransaction.refundLinkedTransactionId !== expenseTransaction.id
+      ) {
+        batch.update(
+          doc(db, 'ledgers', currentLedger.id, 'transactions', activeRefundTransaction.refundLinkedTransactionId),
+          createRefundFieldDeletes()
+        );
+      }
+
+      batch.update(refundRef, {
+        specialTransactionType: 'refund',
+        refundRole: 'refund',
+        refundLinkId,
+        refundLinkedTransactionId: expenseTransaction.id,
+        refundLinkedAt: linkedAt,
+        refundLinkedBy: currentUser.uid,
+      });
+
+      batch.update(expenseRef, {
+        specialTransactionType: 'refund',
+        refundRole: 'original',
+        refundLinkId,
+        refundLinkedTransactionId: activeRefundTransaction.id,
+        refundLinkedAt: linkedAt,
+        refundLinkedBy: currentUser.uid,
+      });
+
+      await batch.commit();
+      setRefundLinkOverlayOpen(false);
+      setRefundLinkTransaction(null);
+      setEditingTransaction((previous) =>
+        previous?.id === activeRefundTransaction.id
+          ? {
+              ...previous,
+              specialTransactionType: 'refund',
+              refundRole: 'refund',
+              refundLinkId,
+              refundLinkedTransactionId: expenseTransaction.id,
+            }
+          : previous
+      );
+      setFormData((previous) =>
+        editingTransaction?.id === activeRefundTransaction.id
+          ? {
+              ...previous,
+              specialTransactionType: 'refund',
+              refundRole: 'refund',
+              refundLinkId,
+              refundLinkedTransactionId: expenseTransaction.id,
+            }
+          : previous
+      );
+      setSuccess('Refund linked successfully');
+      await fetchTransactions();
+    } catch (linkError) {
+      console.error('Error linking refund:', linkError);
+      setError('Failed to link refund');
+    }
+  };
+
+  const handleUnlinkRefund = async (transaction = editingTransaction) => {
+    if (!canEdit() || !isLinkedRefundTransaction(transaction)) {
+      return;
+    }
+
+    try {
+      const batch = writeBatch(db);
+
+      batch.update(
+        doc(db, 'ledgers', currentLedger.id, 'transactions', transaction.id),
+        createRefundFieldDeletes()
+      );
+      batch.update(
+        doc(db, 'ledgers', currentLedger.id, 'transactions', transaction.refundLinkedTransactionId),
+        createRefundFieldDeletes()
+      );
+
+      await batch.commit();
+      setRefundLinkOverlayOpen(false);
+      setRefundLinkTransaction(null);
+      setEditingTransaction((previous) => {
+        if (previous?.id !== transaction.id) {
+          return previous;
+        }
+
+        return omitRefundFields(previous);
+      });
+      setFormData((previous) =>
+        editingTransaction?.id === transaction.id ? omitRefundFields(previous) : previous
+      );
+      setSuccess('Refund unlinked successfully');
+      await fetchTransactions();
+    } catch (unlinkError) {
+      console.error('Error unlinking refund:', unlinkError);
+      setError('Failed to unlink refund');
+    }
+  };
+
   const toggleTransactionSelection = (transactionId) => {
     setSelectedTransactions((previous) =>
       previous.includes(transactionId)
@@ -454,6 +683,7 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
   };
 
   const isMultiMemberLedger = members.length > 1;
+  const relatedRefundTransaction = getRelatedRefundTransaction(editingTransaction, transactions);
 
   if (loading) {
     return <div className="p-6">Loading transactions...</div>;
@@ -508,20 +738,44 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
       )}
 
       {showAddForm && (
-        <TransactionForm
-          formData={formData}
-          setFormData={setFormData}
-          categories={categories}
-          members={members}
-          splitMode={splitMode}
-          setSplitMode={setSplitMode}
-          currentLedger={currentLedger}
-          editingTransaction={editingTransaction}
-          isMultiMemberLedger={isMultiMemberLedger}
-          onSubmit={handleSubmit}
-          onCancel={handleCancelForm}
-        />
+        <div className="fixed inset-0 z-40 bg-slate-950/40 px-4 py-8 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="mx-auto max-h-[calc(100vh-4rem)] w-full max-w-4xl overflow-y-auto rounded-xl shadow-2xl"
+          >
+            <TransactionForm
+              formData={formData}
+              setFormData={setFormData}
+              categories={categories}
+              members={members}
+              splitMode={splitMode}
+              setSplitMode={setSplitMode}
+              currentLedger={currentLedger}
+              editingTransaction={editingTransaction}
+              relatedRefundTransaction={relatedRefundTransaction}
+              isMultiMemberLedger={isMultiMemberLedger}
+              onSubmit={handleSubmit}
+              onCancel={handleCancelForm}
+              onOpenRefundLink={() => handleOpenRefundLink(editingTransaction)}
+              onUnlinkRefund={() => handleUnlinkRefund()}
+            />
+          </div>
+        </div>
       )}
+
+      <RefundLinkOverlay
+        open={refundLinkOverlayOpen}
+        refundTransaction={refundLinkTransaction || editingTransaction}
+        transactions={transactions}
+        categories={categories}
+        currentLedger={currentLedger}
+        onClose={() => {
+          setRefundLinkOverlayOpen(false);
+          setRefundLinkTransaction(null);
+        }}
+        onSelectExpense={handleLinkRefund}
+      />
 
       {showBatchEdit && (
         <TransactionBatchEdit
@@ -548,6 +802,8 @@ export default function TransactionManagement({ debugModeEnabled = false, thinki
         onShowBatchEdit={() => setShowBatchEdit(true)}
         onBatchDelete={handleBatchDelete}
         onTogglePin={handleTogglePin}
+        onOpenRefundLink={handleOpenRefundLink}
+        onUnlinkRefund={handleUnlinkRefund}
         onEdit={handleEdit}
         onDelete={handleDelete}
       />

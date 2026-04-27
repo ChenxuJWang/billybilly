@@ -26,12 +26,12 @@ import {
   deleteDoc, 
   query, 
   orderBy, 
-  where,
   Timestamp 
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLedger } from '../contexts/LedgerContext';
+import { buildRefundAnalyticsTransactions } from '@/features/transactions/utils/refunds';
 
 export default function BudgetManagement() {
   const { currentUser } = useAuth();
@@ -139,7 +139,7 @@ export default function BudgetManagement() {
 
     try {
       const transactionsRef = collection(db, 'ledgers', currentLedger.id, 'transactions');
-      const q = query(transactionsRef, where('includeInBudget', '==', true));
+      const q = query(transactionsRef);
       const querySnapshot = await getDocs(q);
       
       const transactionList = [];
@@ -160,10 +160,11 @@ export default function BudgetManagement() {
 
   // Calculate budget spending
   const calculateBudgetSpending = (budget) => {
-    const budgetTransactions = transactions.filter(transaction => {
+    const budgetTransactions = buildRefundAnalyticsTransactions(transactions).filter(transaction => {
       const transactionDate = transaction.date;
       return transactionDate >= budget.startDate && 
              transactionDate <= budget.endDate &&
+             transaction.includeInBudget === true &&
              transaction.type === 'expense';
     });
 
